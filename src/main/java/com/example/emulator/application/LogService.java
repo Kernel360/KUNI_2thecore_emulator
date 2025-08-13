@@ -1,10 +1,12 @@
 package com.example.emulator.application;
 
+import com.example.emulator.car.CarStatus;
 import com.example.emulator.car.domain.CarEntity;
 import com.example.emulator.car.exception.CarErrorCode;
 import com.example.emulator.car.exception.CarNotFoundException;
 import com.example.emulator.car.CarReader;
 import com.example.emulator.controller.dto.LogPowerDto;
+import com.example.emulator.infrastructure.car.CarRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -16,7 +18,8 @@ import org.springframework.stereotype.Service;
 public class LogService {
 
     private final CarReader carReader;
-//    private final EmulatorReader emulatorReader;
+    private final CarRepository carRepository;
+    //    private final EmulatorReader emulatorReader;
     private final GpxScheduler gpxScheduler;
 
     public LogPowerDto changePowerStatus(LogPowerDto logPowerDto) {
@@ -31,6 +34,10 @@ public class LogService {
         //     emulatorEntity.setStatus(EmulatorStatus.getEmulatorStatus(powerStatus));
 
         if(powerStatus.equals("ON")) {
+
+            //status 변경 "운행"
+            carEntity.setStatus(CarStatus.DRIVING);
+            carRepository.save(carEntity);
             // scheduler 시작
             gpxScheduler.setCarNumber(carNumber);
             gpxScheduler.setLoginId(loginId);
@@ -40,13 +47,17 @@ public class LogService {
         }
 
         if(powerStatus.equals("OFF")) {
+            //status 변경 "대기"
+            carEntity.setStatus(CarStatus.IDLE);
+            carRepository.save(carEntity);
             gpxScheduler.stopScheduler();
         }
 
-//        return LogPowerDto.builder()
-//                .carNumber(emulatorEntity.getCarNumber())
-//                .loginId(loginId)
-//                .powerStatus(emulatorEntity.getStatus().toString())
-//                .build();
+        return LogPowerDto.builder()
+                .carNumber(carEntity.getCarNumber())
+                .loginId(loginId)
+                .powerStatus(carEntity.getStatus().getDisplayName())
+                .build();
     }
 }
+

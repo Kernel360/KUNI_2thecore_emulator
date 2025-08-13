@@ -166,7 +166,10 @@ public class GpxScheduler{
                 .build(); // buffer 내부 로그들 Json화
 
         // 전송할 Collector API 주소
-        String collectorUrl = "http://localhost:8080/api/logs/gps"; // 실제 주소로 변경해야 함
+        String collectorUrl = "http://52.78.122.150:8080/api/logs/gps";
+
+        // 테스트를 위한 no rabbit mq url
+        //String collectorUrl = "http://52.78.122.150:8080/api/logs/gps-direct";
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
