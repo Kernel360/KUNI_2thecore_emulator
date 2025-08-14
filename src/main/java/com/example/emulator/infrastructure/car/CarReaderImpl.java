@@ -1,17 +1,12 @@
 package com.example.emulator.infrastructure.car;
 
-import com.example.emulator.car.CarStatus;
 import com.example.emulator.car.domain.CarEntity;
 import com.example.emulator.car.CarReader;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 @Repository
 @ConditionalOnProperty(name = "car.reader.db.enabled", havingValue = "true", matchIfMissing = true)
@@ -28,31 +23,7 @@ public class CarReaderImpl implements CarReader {
         return carRepository.findByCarNumber(carNumber);
     }
 
-//    public List<CarEntity> findAll(){
-//        return carRepository.findAll();
-//    }
-
-    public Page<CarEntity> findAll(Pageable pageable){
-        return carRepository.findAll(pageable);
-    }
-
-    public Map<CarStatus, Long> getCountByStatus(){
-
-        List<Object[]> result = carRepository.getCountByStatus();
-
-        return result.stream().collect(Collectors.toMap(
-                row -> (CarStatus) row[0],
-                row -> (Long) row[1]
-        ));
-
-    }
-
-    public Optional<CarEntity> findByEmulatorId(Integer emulatorId){
-        return carRepository.findByEmulatorId(emulatorId);
-    }
-
-    @Override
-    public List<CarEntity> findByStatus(List<CarStatus> statuses) {
-        return carRepository.findByStatusIn(statuses);
+    public List<CarEntity> findAll(String loginId){
+        return carRepository.findAllByLoginId(loginId);
     }
 }

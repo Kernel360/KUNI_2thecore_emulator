@@ -43,7 +43,6 @@ public class LogService {
             gpxScheduler.setLoginId(loginId);
 
             gpxScheduler.init();
-            gpxScheduler.startScheduler();
         }
 
         if(powerStatus.equals("OFF")) {
