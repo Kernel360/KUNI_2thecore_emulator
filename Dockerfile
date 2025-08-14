@@ -13,8 +13,8 @@ ENV GRADLE_USER_HOME=/home/gradle/.gradle \
 COPY settings.gradle build.gradle gradlew gradle/ ./
 
 # 의존성 프리페치(네트워크 이슈 시에도 다음 단계 진행)
-RUN chmod +x ./gradlew && \
-    --mount=type=cache,target=/home/gradle/.gradle \
+RUN chmod +x ./gradlew
+RUN --mount=type=cache,target=/home/gradle/.gradle \
     ./gradlew --no-daemon dependencies || true
 
 # 전체 소스 복사 후 실제 빌드
