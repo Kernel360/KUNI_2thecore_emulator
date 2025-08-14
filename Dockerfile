@@ -1,25 +1,18 @@
 FROM gradle:8.4.0-jdk17 AS build
 WORKDIR /workspace
 
-ENV GRADLE_USER_HOME=/home/gradle/.gradle \
-    GRADLE_OPTS="-Dorg.gradle.workers.max=1 -Dorg.gradle.logging.stacktrace=full -Dorg.gradle.vfs.watch=false" \
-    JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0 -XX:+UseStringDeduplication"
-
+# 캐시 최적화: Gradle 메타 먼저
 COPY settings.gradle build.gradle gradlew gradle/ ./
-# 래퍼 실행권한/의존성 프리페치
-RUN chmod +x ./gradlew
-RUN --mount=type=cache,target=/home/gradle/.gradle \
-    /bin/sh -c 'set -e; timeout 600s ./gradlew --no-daemon --console=plain --info --stacktrace dependencies || true'
 
-# 소스 복사 후 실제 빌드(타임아웃 + 상세로그)
+# gradlew 실행권한 및 의존성 선다운로드(실패해도 계속 진행)
+RUN chmod +x ./gradlew && ./gradlew --no-daemon dependencies || true
+
+# 소스 복사 후 빌드
 COPY . .
-RUN --mount=type=cache,target=/home/gradle/.gradle \
-    /bin/sh -c 'set -e; timeout 900s ./gradlew --no-daemon --console=plain --info --stacktrace bootJar -x test'
+RUN ./gradlew --no-daemon bootJar -x test
 
 FROM eclipse-temurin:17-jre
 WORKDIR /app
-RUN useradd -ms /bin/bash appuser
 COPY --from=build /workspace/build/libs/*.jar app.jar
-USER appuser
 EXPOSE 8081
-ENTRYPOINT ["java","-jar","/app/app.jar"]
+ENTRYPOINT ["java","-jar","app.jar"]
