@@ -1,6 +1,10 @@
 pipeline {
   agent any
-  options { timestamps() }
+  options { disableConcurrentBuilds()                         // 동시 빌드 금지
+                buildDiscarder(logRotator(numToKeepStr: '10', daysToKeepStr: '30'))
+                timeout(time: 30, unit: 'MINUTES')                // 파이프라인 전체 상한
+                timestamps()
+           }
 
   environment {
       IMAGE_NAME  = '2thecore-emulator'                 // 컨테이너 이름
