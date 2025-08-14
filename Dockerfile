@@ -29,7 +29,7 @@ WORKDIR /app
 
 # 보안상 비루트 권장
 RUN useradd -ms /bin/bash appuser
-COPY --from=build /workspace/main-server/build/libs/*.jar app.jar
+COPY --from=build /workspace/build/libs/*.jar app.jar
 USER appuser
 
 EXPOSE 8081
