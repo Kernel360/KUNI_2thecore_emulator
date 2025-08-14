@@ -5,6 +5,7 @@ ENV GRADLE_USER_HOME=/home/gradle/.gradle \
     GRADLE_OPTS="-Dorg.gradle.workers.max=1 -Dorg.gradle.logging.stacktrace=full -Dorg.gradle.vfs.watch=false" \
     JAVA_TOOL_OPTIONS="-XX:MaxRAMPercentage=75.0 -XX:+UseStringDeduplication"
 
+COPY settings.gradle build.gradle gradlew gradle/ ./
 # 래퍼 실행권한/의존성 프리페치
 RUN chmod +x ./gradlew
 RUN --mount=type=cache,target=/home/gradle/.gradle \
