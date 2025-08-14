@@ -50,7 +50,6 @@ public class GpxScheduler{
     // 스케줄러 실행 여부 확인
     private ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
-    @PostConstruct
     public void init() { // init method:  랜덤한 GPX 파일 로드 후 메모리(gpxFile)에 로드
         try {
             // classpath 내 /gpx 폴더 경로 가져오기
@@ -113,8 +112,7 @@ public class GpxScheduler{
                         buffer.add(dto);
                     }
 
-                    if (currentIndex % 120 == 0 && currentIndex != 0) { // 전송 주기가 되면 데이터 전송 함수 실행
-                        // Todo DB에 주기 정보 업데이트 후 주기 DB에서 불러오는 코드로 수정하기
+                    if (currentIndex % 60 == 0 && currentIndex != 0) { // 전송 주기가 되면 데이터 전송 함수 실행 - 60초
                         sendGpxData();
                     }
 
