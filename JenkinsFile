@@ -11,15 +11,6 @@ pipeline {
   }
 
   stages {
-    stage('Checkout') {
-      steps {
-        checkout([$class: 'GitSCM',
-          userRemoteConfigs: [[url: 'https://github.com/Kernel360/KUNI_2thecore_emulator.git']],
-          branches: [[name: '*/dev-Jenkins-test']]
-        ])
-      }
-    }
-
     stage('Build & Dockerize') {
           steps {
             withCredentials([
