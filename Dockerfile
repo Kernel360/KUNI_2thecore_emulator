@@ -20,7 +20,7 @@ RUN --mount=type=cache,target=/home/gradle/.gradle \
 # 전체 소스 복사 후 실제 빌드
 COPY . .
 RUN --mount=type=cache,target=/home/gradle/.gradle \
-    ./gradlew --no-daemon bootJar -x test --retry 3
+    ./gradlew --no-daemon bootJar -x test
 
 ########## RUNTIME STAGE ##########
 FROM eclipse-temurin:17-jre
