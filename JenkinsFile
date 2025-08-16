@@ -26,7 +26,12 @@ pipeline {
 
             # 1) JAR 빌드
             chmod +x ./gradlew
-            ./gradlew --no-daemon clean bootJar -x test
+            ./gradlew --no-daemon \
+              -Dorg.gradle.logging.flush.frequency=1s \
+              -Dorg.gradle.internal.http.connectionTimeout=10000 \
+              -Dorg.gradle.internal.http.socketTimeout=10000 \
+              --info --stacktrace --refresh-dependencies \
+              clean bootJar -x test
 
             # 2) 태그 생성 (dev-<shortsha>)
             SHORT_SHA="$(git rev-parse --short HEAD)"
