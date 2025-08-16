@@ -1,5 +1,6 @@
 server:
   port: ${EMUL_SERVER_PORT:8081}
+  address: 0.0.0.0             # 외부 바인딩 확실히
 
 spring:
   data:
@@ -15,7 +16,7 @@ spring:
 
   jpa:
     hibernate:
-      ddl-auto: ${DDL_AUTO:none}     # none / validate / update / create / create-drop
+      ddl-auto: ${DDL_AUTO:none}
     show-sql: true
     properties:
       hibernate:
@@ -24,6 +25,13 @@ spring:
     naming:
       physical-strategy: org.springframework.boot.orm.jpa.hibernate.SpringPhysicalNamingStrategy
       implicit-strategy: org.springframework.boot.orm.jpa.hibernate.SpringImplicitNamingStrategy
+
+springdoc:
+  api-docs:
+    enabled: true
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
 
 jwt:
   secret: ${JWT_SECRET_KEY}
