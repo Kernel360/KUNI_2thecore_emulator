@@ -1,19 +1,13 @@
 server:
   port: ${EMUL_SERVER_PORT:8081}
-  address: 0.0.0.0             # 외부 바인딩 확실히
+  address: 0.0.0.0             
 
 spring:
-  data:
-    redis:
-      host: ${REDIS_HOST}
-      port: ${REDIS_PORT:6379}
-
   datasource:
     url: ${DB_URL}
+    driver-class-name: com.mysql.cj.jdbc.Driver
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
-    driver-class-name: com.mysql.cj.jdbc.Driver
-
   jpa:
     hibernate:
       ddl-auto: ${DDL_AUTO:none}
