@@ -16,11 +16,10 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(
-                                "/swagger-ui.html",
                                 "/swagger-ui/**",
-                                "/v3/api-docs",
-                                "/v3/api-docs/**",     // 하위 경로
-                                "/v3/api-docs.yaml"
+                                "/v3/api-docs/**",
+                                "/swagger-resources/**",
+                                "/swagger-ui.html"
                         ).permitAll()
                         .anyRequest().authenticated()
                 );
