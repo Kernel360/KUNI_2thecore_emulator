@@ -11,7 +11,7 @@ pipeline {
     IMAGE_NAME  = '2thecore-emulator'
     DOCKER_REPO = 'yeonjin529/2thecore-emulator'
     DEPLOY_HOST = '15.165.171.174'
-    PEM_PATH    = '/var/lib/jenkins/.ssh/kernel-2thecore-ec2.pem'
+    PEM_PATH    = '/var/lib/jenkins/.ssh/yeojin.pem'
     APP_PORT    = '8081'
   }
 
