@@ -8,48 +8,39 @@ group = 'com.example'
 version = '0.0.1-SNAPSHOT'
 
 java {
-	toolchain {
-		languageVersion = JavaLanguageVersion.of(17)
-	}
+	toolchain { languageVersion = JavaLanguageVersion.of(17) }
 }
 
 configurations {
-	compileOnly {
-		extendsFrom annotationProcessor
-	}
+	compileOnly { extendsFrom annotationProcessor }
 }
 
-repositories {
-	mavenCentral()
-}
+repositories { mavenCentral() }
 
 dependencies {
+    // Spring Boot Starters
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+    implementation 'org.springframework.boot:spring-boot-starter-security'
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
 
-	// Swagger(OpenAPI)
-	implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.5'
+    // Swagger(OpenAPI) → 버전 골라야 함 (2.8.5 vs 2.8.6)
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.6'
 
-	// Spring Boot Starters
-	implementation 'org.springframework.boot:spring-boot-starter-web'
-	implementation 'org.springframework.boot:spring-boot-starter-validation'
-	implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
-	testImplementation 'org.springframework.boot:spring-boot-starter-test'
-	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
-	runtimeOnly   "com.mysql:mysql-connector-j"
+    // DB
+    runtimeOnly 'com.mysql:mysql-connector-j'
 
-	// DB
-	runtimeOnly 'com.mysql:mysql-connector-j'
+    // Lombok
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
 
-	// Lombok
-	compileOnly 'org.projectlombok:lombok'
-	annotationProcessor 'org.projectlombok:lombok'
+    // DotEnv (dev 브랜치 추가된 부분)
+    implementation 'io.github.cdimascio:dotenv-java:3.2.0'
 
-
-	//DotEnv
-	implementation 'io.github.cdimascio:dotenv-java:3.2.0'
-
-
+    // Tests
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
-tasks.named('test') {
-	useJUnitPlatform()
-}
+// 테스트 플랫폼 설정 유지
+tasks.named('test') { useJUnitPlatform() }

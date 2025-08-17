@@ -1,110 +1,94 @@
 pipeline {
   agent any
-  options { timestamps() }
+  options {
+    disableConcurrentBuilds()
+    buildDiscarder(logRotator(numToKeepStr: '10', daysToKeepStr: '30'))
+    timeout(time: 30, unit: 'MINUTES')
+    timestamps()
+  }
 
   environment {
-    IMAGE_NAME = '2thecore-emulator'
+    IMAGE_NAME  = '2thecore-emulator'
+    DOCKER_REPO = 'yeonjin529/2thecore-emulator'
+    DEPLOY_HOST = '15.165.171.174'
+    PEM_PATH    = '/var/lib/jenkins/.ssh/yeojin.pem'
+    APP_PORT    = '8081'
   }
 
   stages {
-    stage('Checkout') {
-      steps {
-        checkout([$class: 'GitSCM',
-          userRemoteConfigs: [[url: 'https://github.com/Kernel360/KUNI_2thecore_backend.git']],
-          branches: [[name: '*/emulator']]
-        ])
-      }
-    }
-
-    stage('Build & Push Image') {
+    stage('Build & Dockerize') {
       steps {
         withCredentials([
-          usernamePassword(
-            credentialsId: 'docker-hub-token',
-            usernameVariable: 'DOCKERHUB_USER',
-            passwordVariable: 'DOCKERHUB_TOKEN'
-          ),
-          file(credentialsId: '2thecore-env', variable: 'ENV_FILE')
-        ]) {
-          script { env.DOCKER_USER = DOCKERHUB_USER }
-          withEnv(["IMAGE_REPO=${DOCKERHUB_USER}/${IMAGE_NAME}"]) {
-            sh '''
-              set -euo pipefail
-              cd back
-
-              # secret 파일 저장
-              install -m600 "$ENV_FILE" prod.env
-
-              # Docker 로그인
-              echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin
-              docker info | grep -i '^ Username' || true
-
-              # emulator 이미지 빌드 및 푸시
-              docker build -f emulator-server/Dockerfile -t "${IMAGE_REPO}:emulator" .
-              docker push "${IMAGE_REPO}:emulator"
-            '''
-          }
-        }
-      }
-    }
-
-    stage('Deploy to EC2 via SSH') {
-      steps {
-        withCredentials([
-          usernamePassword(
-            credentialsId: 'docker-hub-token',
-            usernameVariable: 'DOCKERHUB_USER',
-            passwordVariable: 'DOCKERHUB_TOKEN'
-          )
+          usernamePassword(credentialsId: 'docker-hub-token', usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_TOKEN')
         ]) {
           sh '''
             set -euo pipefail
 
-            DEPLOY_HOST=ec2-3-39-232-29.ap-northeast-2.compute.amazonaws.com
-            SSH_KEY=/var/lib/jenkins/.ssh/server_key
-            REMOTE_DIR=/home/ubuntu/2thecore
+            # 1) JAR 빌드
+            chmod +x ./gradlew
+            ./gradlew --no-daemon \
+              -Dorg.gradle.logging.flush.frequency=1s \
+              -Dorg.gradle.internal.http.connectionTimeout=10000 \
+              -Dorg.gradle.internal.http.socketTimeout=10000 \
+              --info --stacktrace --refresh-dependencies \
+              clean bootJar -x test
 
-            install -d -m700 "$HOME/.ssh"
-            install -m644 /dev/null "$HOME/.ssh/known_hosts" || true
-            SSH_OPTS="-o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=$HOME/.ssh/known_hosts"
+            # 2) 태그 생성 (dev-<shortsha>)
+            SHORT_SHA="$(git rev-parse --short HEAD)"
+            TAG="dev-${SHORT_SHA}"
+            echo "TAG=${TAG}" > "$WORKSPACE/build_tag.env"
 
-            ssh $SSH_OPTS -i "$SSH_KEY" ubuntu@"$DEPLOY_HOST" "mkdir -p $REMOTE_DIR"
-            scp $SSH_OPTS -i "$SSH_KEY" back/prod.env ubuntu@"$DEPLOY_HOST":"$REMOTE_DIR/prod.env"
+            # 3) Docker 로그인
+            echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin
 
-            ssh $SSH_OPTS -i "$SSH_KEY" \
-              ubuntu@"$DEPLOY_HOST" \
-              "DOCKER_USER=${DOCKERHUB_USER} IMAGE_NAME=${IMAGE_NAME} bash -s" <<'EOS'
-    set -xeuo pipefail
+            # 4) 이미지 빌드/태그/푸시
+            docker build -t "${DOCKER_REPO}:${TAG}" -f Dockerfile .
+            docker tag "${DOCKER_REPO}:${TAG}" "${DOCKER_REPO}:dev-latest"
+            docker push "${DOCKER_REPO}:${TAG}"
+            docker push "${DOCKER_REPO}:dev-latest"
+          '''
+        }
+      }
+    }
 
-    test -s /home/ubuntu/2thecore/prod.env
+    stage('Deploy to EC2 (single container)') {
+      steps {
+        withCredentials([
+          file(credentialsId: '2thecore-env', variable: 'ENV_FILE'),
+          usernamePassword(credentialsId: 'docker-hub-token', usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_TOKEN')
+        ]) {
+          sh '''
+            set -euo pipefail
+            source "$WORKSPACE/build_tag.env"
 
-    sudo mkdir -p /opt/2thecore
-    sudo mv /home/ubuntu/2thecore/prod.env /opt/2thecore/prod.env
-    sudo chown ubuntu:ubuntu /opt/2thecore/prod.env
+            # 0) 원격 prod.env 존재 시 업로드 스킵, 없으면 /tmp로 업로드 후 안전 설치
+            if ssh -o StrictHostKeyChecking=no -i "${PEM_PATH}" "ubuntu@${DEPLOY_HOST}" '[ -f /home/ubuntu/prod.env ]'; then
+              echo "[deploy] using existing /home/ubuntu/prod.env on remote"
+            else
+              echo "[deploy] /home/ubuntu/prod.env not found; uploading..."
+              scp -o StrictHostKeyChecking=no -i "${PEM_PATH}" "$ENV_FILE" "ubuntu@${DEPLOY_HOST}:/tmp/prod.env"
+              ssh -o StrictHostKeyChecking=no -i "${PEM_PATH}" "ubuntu@${DEPLOY_HOST}" "sudo install -D -m 600 -o ubuntu -g ubuntu -T /tmp/prod.env /home/ubuntu/prod.env"
+            fi
 
-    cd /opt/2thecore
+            # 1) 원격 배포 (sudo docker 사용, SSH quoting 정상화)
+            ssh -o StrictHostKeyChecking=no -i "${PEM_PATH}" "ubuntu@${DEPLOY_HOST}" "bash -lc '
+              set -euo pipefail
 
-    docker network create core-net >/dev/null 2>&1 || true
+              echo ${DOCKERHUB_TOKEN} | sudo docker login -u ${DOCKERHUB_USER} --password-stdin
 
-    docker rm -f emulator >/dev/null 2>&1 || true
+              (sudo docker rm -f ${IMAGE_NAME} || true)
+              sudo docker pull ${DOCKER_REPO}:${TAG}
 
-    docker pull docker.io/${DOCKER_USER}/${IMAGE_NAME}:emulator
+              sudo docker run -d --name ${IMAGE_NAME} \
+                --env-file /home/ubuntu/prod.env \
+                -p ${APP_PORT}:${APP_PORT} \
+                --restart unless-stopped \
+                ${DOCKER_REPO}:${TAG}
 
-    docker run -d --name emulator \
-      --network core-net \
-      --env-file /opt/2thecore/prod.env \
-      -p 8080:8080 --restart unless-stopped \
-      docker.io/${DOCKER_USER}/${IMAGE_NAME}:emulator
-
-    for i in {1..30}; do
-      status=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/actuator/health || echo 000)
-      [ "$status" = "200" ] && echo "emulator health OK" && break
-      sleep 2
-    done
-
-    docker ps --format "table {{.Names}}\\t{{.Status}}\\t{{.Ports}}"
-    EOS
-            '''
+              sleep 3
+              (sudo docker ps --filter name=${IMAGE_NAME} --format \"table {{.Names}}\\t{{.Status}}\" && ss -lnt | grep :${APP_PORT}) || true
+            '"
+          '''
         }
       }
     }
