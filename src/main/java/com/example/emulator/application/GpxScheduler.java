@@ -171,7 +171,6 @@ public class GpxScheduler{
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth("eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJ0ZXN0IiwiZW1haWwiOiJ0ZXN0IiwiaWF0IjoxNzU0NDUzODUxLCJleHAiOjE3NTUwNTM4NTF9.u1f1GkIw2if-O5xvA1TD1WGVztYH0YhXhzRgwaxhuu8");
 
         HttpEntity<GpxRequestDto> request = new HttpEntity<>(logJson, headers);
 
