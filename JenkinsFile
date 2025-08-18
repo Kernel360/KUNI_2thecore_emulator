@@ -1,5 +1,6 @@
 pipeline {
   agent any
+
   options {
     disableConcurrentBuilds()
     buildDiscarder(logRotator(numToKeepStr: '10', daysToKeepStr: '30'))
@@ -16,6 +17,7 @@ pipeline {
   }
 
   stages {
+
     stage('Build & Dockerize') {
       steps {
         withCredentials([
@@ -24,26 +26,21 @@ pipeline {
           sh '''
             set -euo pipefail
 
-            # 1) JAR 빌드
+            # Gradle build
             chmod +x ./gradlew
-            ./gradlew --no-daemon \
-              -Dorg.gradle.logging.flush.frequency=1s \
-              -Dorg.gradle.internal.http.connectionTimeout=10000 \
-              -Dorg.gradle.internal.http.socketTimeout=10000 \
-              --info --stacktrace --refresh-dependencies \
-              clean bootJar -x test
+            ./gradlew --no-daemon clean bootJar -x test
 
-            # 2) 태그 생성 (dev-<shortsha>)
+            # tag: dev-<shortsha>
             SHORT_SHA="$(git rev-parse --short HEAD)"
             TAG="dev-${SHORT_SHA}"
             echo "TAG=${TAG}" > "$WORKSPACE/build_tag.env"
 
-            # 3) Docker 로그인
+            # docker login / build / push
             echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin
 
-            # 4) 이미지 빌드/태그/푸시
             docker build -t "${DOCKER_REPO}:${TAG}" -f Dockerfile .
-            docker tag "${DOCKER_REPO}:${TAG}" "${DOCKER_REPO}:dev-latest"
+            docker tag  "${DOCKER_REPO}:${TAG}" "${DOCKER_REPO}:dev-latest"
+
             docker push "${DOCKER_REPO}:${TAG}"
             docker push "${DOCKER_REPO}:dev-latest"
           '''
@@ -61,32 +58,27 @@ pipeline {
             set -euo pipefail
             source "$WORKSPACE/build_tag.env"
 
-            # 0) 원격 prod.env 존재 시 업로드 스킵, 없으면 /tmp로 업로드 후 안전 설치
+            # prod.env 없는 경우에만 업로드
             if ssh -o StrictHostKeyChecking=no -i "${PEM_PATH}" "ubuntu@${DEPLOY_HOST}" '[ -f /home/ubuntu/prod.env ]'; then
               echo "[deploy] using existing /home/ubuntu/prod.env on remote"
             else
               echo "[deploy] /home/ubuntu/prod.env not found; uploading..."
-              scp -o StrictHostKeyChecking=no -i "${PEM_PATH}" "$ENV_FILE" "ubuntu@${DEPLOY_HOST}:/tmp/prod.env"
-              ssh -o StrictHostKeyChecking=no -i "${PEM_PATH}" "ubuntu@${DEPLOY_HOST}" "sudo install -D -m 600 -o ubuntu -g ubuntu -T /tmp/prod.env /home/ubuntu/prod.env"
+              scp -o StrictHostKeyChecking=no -i "${PEM_PATH}" "$ENV_FILE" "ubuntu@${DEPLOY_HOST}:/home/ubuntu/prod.env"
             fi
 
-            # 1) 원격 배포 (sudo docker 사용, SSH quoting 정상화)
+            # 원격 배포
             ssh -o StrictHostKeyChecking=no -i "${PEM_PATH}" "ubuntu@${DEPLOY_HOST}" "bash -lc '
               set -euo pipefail
-
               echo ${DOCKERHUB_TOKEN} | sudo docker login -u ${DOCKERHUB_USER} --password-stdin
 
               (sudo docker rm -f ${IMAGE_NAME} || true)
               sudo docker pull ${DOCKER_REPO}:${TAG}
 
               sudo docker run -d --name ${IMAGE_NAME} \
-                --env-file /home/ubuntu/prod.env \
                 -p ${APP_PORT}:${APP_PORT} \
+                -v /home/ubuntu/prod.env:/app/prod.env:ro \
                 --restart unless-stopped \
                 ${DOCKER_REPO}:${TAG}
-
-              sleep 3
-              (sudo docker ps --filter name=${IMAGE_NAME} --format \"table {{.Names}}\\t{{.Status}}\" && ss -lnt | grep :${APP_PORT}) || true
             '"
           '''
         }
@@ -95,6 +87,8 @@ pipeline {
   }
 
   post {
-    always { echo "Pipeline finished." }
+    always {
+      echo "Pipeline finished."
+    }
   }
 }
