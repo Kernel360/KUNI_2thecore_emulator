@@ -10,9 +10,11 @@ import com.example.emulator.infrastructure.car.CarRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
 
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
-// emulatorId 삭제로 인한 디버깅 필요
 
 @Slf4j
 @Service
@@ -21,8 +23,8 @@ public class LogService {
 
     private final CarReader carReader;
     private final CarRepository carRepository;
-    //    private final EmulatorReader emulatorReader;
-    private final GpxScheduler gpxScheduler;
+    private final RestTemplate restTemplate;
+    private final Map<String, GpxScheduler> schedulers = new ConcurrentHashMap<>();
 
     public LogPowerDto changePowerStatus(LogPowerDto logPowerDto) {
         String carNumber = logPowerDto.getCarNumber();
@@ -32,29 +34,39 @@ public class LogService {
         CarEntity carEntity = carReader.findByCarNumber(carNumber)
                 .orElseThrow(() -> new CarNotFoundException(CarErrorCode.CAR_NOT_FOUND_BY_NUMBER, carNumber));
 
-        //       EmulatorEntity emulatorEntity = emulatorReader.getById(carEntity.getEmulatorId());
-        //     emulatorEntity.setStatus(EmulatorStatus.getEmulatorStatus(powerStatus));
-
-        if(powerStatus.equals("ON")) {
+        if (powerStatus.equals("ON")) {
+            // 이미 실행 중인 스케줄러가 있으면 중지
+            if (schedulers.containsKey(carNumber)) {
+                log.info("이미 실행중인 스케줄러가 있어, 기존 스케줄러를 중지합니다: {}", carNumber);
+                schedulers.get(carNumber).stopScheduler();
+                schedulers.remove(carNumber);
+            }
 
             //status 변경 "운행"
-            log.info("emul status on: {} ", carNumber);
+            log.info("차량 상태 ON: {} ", carNumber);
             carEntity.setStatus(CarStatus.DRIVING);
             carRepository.save(carEntity);
-            // scheduler 시작
-            log.info("emul running");
-            gpxScheduler.setCarNumber(carNumber);
-            gpxScheduler.setLoginId(loginId);
 
-            gpxScheduler.init();
-        }
+            // 새 스케줄러 생성 및 시작
+            log.info("새로운 스케줄러를 시작합니다: {}", carNumber);
+            GpxScheduler gpxScheduler = new GpxScheduler(restTemplate);
+            schedulers.put(carNumber, gpxScheduler);
+            gpxScheduler.init(carNumber, loginId);
 
-        if(powerStatus.equals("OFF")) {
+        } else if (powerStatus.equals("OFF")) {
             //status 변경 "대기"
-            log.info("emul status off: {}",carNumber);
+            log.info("차량 상태 OFF: {}", carNumber);
             carEntity.setStatus(CarStatus.IDLE);
             carRepository.save(carEntity);
-            gpxScheduler.stopScheduler();
+
+            // 스케줄러 중지
+            if (schedulers.containsKey(carNumber)) {
+                log.info("실행중인 스케줄러를 중지합니다: {}", carNumber);
+                schedulers.get(carNumber).stopScheduler();
+                schedulers.remove(carNumber);
+            } else {
+                log.warn("중지할 스케줄러를 찾을 수 없습니다: {}", carNumber);
+            }
         }
 
         return LogPowerDto.builder()
@@ -64,4 +76,3 @@ public class LogService {
                 .build();
     }
 }
-
