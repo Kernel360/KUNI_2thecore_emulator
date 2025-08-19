@@ -8,11 +8,13 @@ import com.example.emulator.car.CarReader;
 import com.example.emulator.controller.dto.LogPowerDto;
 import com.example.emulator.infrastructure.car.CarRepository;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 
 // emulatorId 삭제로 인한 디버깅 필요
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class LogService {
@@ -36,9 +38,11 @@ public class LogService {
         if(powerStatus.equals("ON")) {
 
             //status 변경 "운행"
+            log.info("emul status on: {} ", carNumber);
             carEntity.setStatus(CarStatus.DRIVING);
             carRepository.save(carEntity);
             // scheduler 시작
+            log.info("emul running");
             gpxScheduler.setCarNumber(carNumber);
             gpxScheduler.setLoginId(loginId);
 
@@ -47,6 +51,7 @@ public class LogService {
 
         if(powerStatus.equals("OFF")) {
             //status 변경 "대기"
+            log.info("emul status off: {}",carNumber);
             carEntity.setStatus(CarStatus.IDLE);
             carRepository.save(carEntity);
             gpxScheduler.stopScheduler();
