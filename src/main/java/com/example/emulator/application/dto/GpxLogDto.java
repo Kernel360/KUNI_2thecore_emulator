@@ -10,7 +10,7 @@ import lombok.ToString;
 @Setter
 @ToString
 public class GpxLogDto {
-    private String timeStamp;
+    private String timestamp;
     private String latitude; // 위도
     private String longitude; // 경도
 }
