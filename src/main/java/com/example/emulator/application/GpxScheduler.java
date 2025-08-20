@@ -2,6 +2,7 @@ package com.example.emulator.application;
 
 import com.example.emulator.application.dto.GpxLogDto;
 import com.example.emulator.application.dto.GpxRequestDto;
+import com.example.emulator.application.exception.GpxExceptionHandler;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpEntity;
@@ -25,6 +26,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
+import com.example.emulator.application.exception.GpxExceptionGenerator;
+import java.net.URI;
+
 @Getter
 @Slf4j
 public class GpxScheduler{
@@ -46,6 +50,8 @@ public class GpxScheduler{
     public GpxScheduler(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
     }
+
+    private final GpxExceptionHandler exceptionHandler = new GpxExceptionHandler();
 
     // init method:  랜덤한 GPX 파일 로드 후 메모리(gpxFile)에 로드
     public void init(String carNumber, String loginId) {
@@ -76,7 +82,27 @@ public class GpxScheduler{
                     .filter(line -> line.trim().startsWith("<trkpt"))
                     .collect(Collectors.toList());
 
+            // 테스트 A: 비정상 gpx 파일 직접 읽기
+//            log.warn("[테스트] 비정상 GPX 파일을 읽습니다.");
+//            try {
+//                File exceptionDir = new File(getClass().getClassLoader().getResource("gpx/exception").toURI());
+//                File specificFile = new File(exceptionDir, "daegu-to-gyeongju_JITTER_NOISE.gpx");
+//                if (specificFile.exists()) {
+//                    gpxFile = Files.readAllLines(specificFile.toPath()).stream()
+//                            .filter(line -> line.trim().startsWith("<trkpt"))
+//                            .collect(Collectors.toList());
+//                    log.info("테스트용 비정상 파일 로드 완료: {}", specificFile.getName());
+//                }
+//            } catch(Exception e) {
+//                log.error("테스트용 비정상 파일 로드 실패", e);
+//            }
+
+            // 테스트 B: 코드로 예외 주입하기
+//            log.warn("[테스트] 코드 기반으로 GPX 데이터에 예외 상황을 주입합니다.");
+//            gpxFile = GpxExceptionGenerator.introduceFreeze(gpxFile, 100, 10);
+
             buffer.clear();
+            exceptionHandler.reset();
 
             // random한 시작 위치 지정
             currentIndex = new Random().nextInt((int)(gpxFile.size() - 300));
@@ -106,6 +132,7 @@ public class GpxScheduler{
                     Pattern pattern = Pattern.compile("lat=\"(.*?)\"\\s+lon=\"(.*?)\"");
                     Matcher matcher = pattern.matcher(gpxFile.get(currentIndex));
 
+                    // 예외 처리 로직 적용
                     if (matcher.find()) {
                         // Gpx라인을 Dto로 가공하여 리스트에 삽입
                         String timestamp = LocalDateTime.now()
@@ -114,14 +141,21 @@ public class GpxScheduler{
                         String latitude = String.format("%.4f", Double.parseDouble(matcher.group(1)));
                         String longitude = String.format("%.4f", Double.parseDouble(matcher.group(2)));
 
-                        GpxLogDto dto = GpxLogDto.builder()
+                        GpxLogDto currentGpxLog = GpxLogDto.builder()
                                     .timestamp(timestamp)
                                     .latitude(latitude)
                                     .longitude(longitude)
                                     .build();
-                        log.info("carNumber: {} latitude: {}, longitude:{} ", carNumber,latitude, longitude);
 
-                        buffer.add(dto);
+                        // 핸들러를 통해 스파이크, 프리즈 감지
+                        boolean isAbnormal = exceptionHandler.isSpike(currentGpxLog) || exceptionHandler.isFreeze(currentGpxLog);
+
+                        // 정상 데이터일 경우에만 로그를 남기고 버퍼에 추가
+                        if (!isAbnormal) {
+                            log.info("carNumber: {} latitude: {}, longitude:{} ", carNumber, currentGpxLog.getLatitude(), currentGpxLog.getLongitude());
+                            buffer.add(currentGpxLog);
+                            exceptionHandler.updatePreviousPoint(currentGpxLog);
+                        }
                     }
 
                     // 전송 주기가 되면 데이터 전송 함수 실행 - 60초
