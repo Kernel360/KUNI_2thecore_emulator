@@ -2,6 +2,7 @@ package com.example.emulator.application;
 
 import com.example.emulator.application.dto.GpxLogDto;
 import com.example.emulator.application.dto.GpxRequestDto;
+import com.example.emulator.controller.dto.LogPowerDto;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
@@ -40,6 +41,9 @@ public class GpxScheduler {
 
     @Autowired
     private RestTemplate restTemplate;
+
+    @Autowired
+    private LogService logService; // LogService 주입
 
     private List<String> gpxFile = new ArrayList<>();
     private List<GpxLogDto> buffer = new ArrayList<>();
@@ -139,6 +143,15 @@ public class GpxScheduler {
                     }
                     scheduler.shutdown();
                     log.info("*********** GPX 파일 전송 완료 ***********");
+
+                    // GPX 전송 완료 후 powerStatus를 OFF로 변경
+                    LogPowerDto logPowerDto = LogPowerDto.builder()
+                        .carNumber(carNumber)
+                        .loginId(loginId)
+                        .powerStatus("OFF")
+                        .build();
+                    logService.changePowerStatus(logPowerDto);
+
                 }
             } catch (Exception e) {
                 log.error("GPX 재생 중 오류 발생", e);
