@@ -3,10 +3,13 @@ package com.example.emulator.application;
 import com.example.emulator.application.dto.EndRequestDto;
 import com.example.emulator.application.dto.GpxLogDto;
 import com.example.emulator.application.dto.GpxRequestDto;
+import com.example.emulator.car.CarReader;
+import com.example.emulator.car.CarStatus;
+import com.example.emulator.controller.dto.LogPowerDto;
+import com.example.emulator.infrastructure.car.CarRepository;
 import com.example.emulator.application.dto.StartRequestDto;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import org.hibernate.sql.ast.tree.expression.Star;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -25,7 +28,6 @@ import java.util.List;
 import java.util.Random;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -36,6 +38,7 @@ import java.util.stream.Collectors;
 public class GpxScheduler{
     private final RestTemplate restTemplate; // api 호출을 위함
     private final String addr = "52.78.122.150"; //"localhost";
+
 
     private List<String> gpxFile = new ArrayList<>(); // Gpx 파일을 읽어와 저장해두는 리스트
     private List<GpxLogDto> buffer = new ArrayList<>(); // 전송될 GPX 정보들을 저장해두는 리스트
@@ -57,6 +60,9 @@ public class GpxScheduler{
     private String timestamp;
 
     // 스케줄러 실행 여부 확인
+    private CarReader carReader;
+    private CarRepository carRepository;
+
     private ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
     public GpxScheduler(RestTemplate restTemplate) {
@@ -164,6 +170,21 @@ public class GpxScheduler{
 
                     scheduler.shutdown(); // 조건 종료 시 스케줄러 중단
                     log.info("*********** GPX 파일 전송 완료 ***********");
+
+                    // GPX 전송 완료 후 powerStatus를 OFF로 변경
+                    LogPowerDto logPowerDto = LogPowerDto.builder()
+                        .carNumber(carNumber)
+                        .loginId(loginId)
+                        .powerStatus("OFF")
+                        .build();
+
+                    log.info("emul status off: {}",carNumber);
+
+                    carReader.findByCarNumber(carNumber).ifPresent(entity -> {
+                        entity.setStatus(CarStatus.IDLE);
+                        carRepository.save(entity);
+                    });
+                    this.stopScheduler();
                 }
             } catch (Exception e) {
                 log.error("GPX 재생 중 오류 발생", e);
@@ -239,6 +260,7 @@ public class GpxScheduler{
         headers.setContentType(MediaType.APPLICATION_JSON);
 
         HttpEntity<StartRequestDto> request = new HttpEntity<>(requestDto, headers);
+        log.info("[JWT] request url={}", url);
         try {
             ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
             log.info("startDrive 응답 상태: {}", response.getStatusCode());
@@ -274,6 +296,7 @@ public class GpxScheduler{
                 .build();
 
         String url = "http://" + addr + ":8080/api/drivelogs/end";
+        log.info("[JWT] request url={}", url);
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
