@@ -20,6 +20,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -78,10 +79,13 @@ public class GpxScheduler{
 
             buffer.clear();
 
-            // random한 시작 위치 지정
-            currentIndex = new Random().nextInt((int)(gpxFile.size() - 300));
-            // random한 종료 지점 지정 (최소 5분은 주행하도록 보장)
-            endIndex = new Random().nextInt(currentIndex + 300, gpxFile.size());
+//            // random한 시작 위치 지정
+//            currentIndex = new Random().nextInt((int)(gpxFile.size() - 300));
+//            // random한 종료 지점 지정 (최소 5분은 주행하도록 보장)
+//            endIndex = new Random().nextInt(currentIndex + 300, gpxFile.size());
+
+            currentIndex= ThreadLocalRandom.current().nextInt(gpxFile.size()-300);
+            endIndex= gpxFile.size();
 
             try{
                 startScheduler();
