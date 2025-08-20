@@ -80,7 +80,7 @@ public class GpxScheduler{
             buffer.clear();
 
             // random한 시작 위치 지정
-            currentIndex = new Random().nextInt((int)(gpxFile.size() - 300));
+            currentIndex = new Random().nextInt(gpxFile.size() - 300);
             // random한 종료 지점 지정 (최소 5분은 주행하도록 보장)
             endIndex = gpxFile.size();
 
