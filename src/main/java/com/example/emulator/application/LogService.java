@@ -43,10 +43,7 @@ public class LogService {
             carRepository.save(carEntity);
             // scheduler 시작
             log.info("emul running");
-            gpxScheduler.setCarNumber(carNumber);
-            gpxScheduler.setLoginId(loginId);
-
-            gpxScheduler.init();
+            gpxScheduler.startGpxSimulation(carNumber, loginId);
         }
 
         if(powerStatus.equals("OFF")) {
@@ -54,7 +51,7 @@ public class LogService {
             log.info("emul status off: {}",carNumber);
             carEntity.setStatus(CarStatus.IDLE);
             carRepository.save(carEntity);
-            gpxScheduler.stopScheduler();
+            gpxScheduler.stopGpxSimulation(carNumber);
         }
 
         return LogPowerDto.builder()

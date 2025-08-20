@@ -4,197 +4,141 @@ import com.example.emulator.application.dto.GpxLogDto;
 import com.example.emulator.application.dto.GpxRequestDto;
 import com.example.emulator.car.CarReader;
 import com.example.emulator.car.CarStatus;
-import com.example.emulator.car.domain.CarEntity;
-import com.example.emulator.controller.dto.LogPowerDto;
 import com.example.emulator.infrastructure.car.CarRepository;
-import lombok.Getter;
+import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
-import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;                    // ★추가
-import org.springframework.core.io.Resource;                           // ★추가
-import org.springframework.core.io.support.PathMatchingResourcePatternResolver; // ★추가
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.Resource;
+import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
 
-import java.io.BufferedReader;                                         // ★추가
-import java.io.InputStreamReader;                                      // ★추가
-import java.nio.charset.StandardCharsets;                               // ★추가
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadLocalRandom;                         // ★추가
-import java.util.concurrent.TimeUnit;
+import java.util.Map;
+import java.util.concurrent.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Component
-@Setter
-@Getter
 @Slf4j
 @RequiredArgsConstructor
 public class GpxScheduler {
 
-    @Autowired
-    private RestTemplate restTemplate;
-
-    private List<String> gpxFile = new ArrayList<>();
-    private List<GpxLogDto> buffer = new ArrayList<>();
-    private int currentIndex = 0;
-    private int endIndex = 0;
-
-    private String carNumber;
-    private String loginId;
-    private String startTime;
-    private String endTime;
-
     private final CarReader carReader;
     private final CarRepository carRepository;
-    //    private final EmulatorReader emulatorReader;
+    private final RestTemplate restTemplate;
 
-    private ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+    private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(10);
+    private final Map<String, ScheduledFuture<?>> runningTasks = new ConcurrentHashMap<>();
 
-    // ★추가: 환경별로 GPX 위치를 바꾸고 싶을 때 사용 (기본은 classpath)
     @Value("${app.gpx.pattern:classpath*:gpx/*.gpx}")
     private String gpxPattern;
 
-    // ★변경: JAR에서도 동작하도록 리소스 패턴으로 GPX 파일 검색
-    public void init() {
-        try {
-            log.info("init gpx scheduler (pattern={})", gpxPattern);
+    public void startGpxSimulation(String carNumber, String loginId) {
+        stopGpxSimulation(carNumber);
 
+        try {
+            log.info("Starting GPX simulation for car: {}", carNumber);
             var resolver = new PathMatchingResourcePatternResolver();
             Resource[] resources = resolver.getResources(gpxPattern);
 
             if (resources.length == 0) {
-                log.error("GPX 리소스를 찾을 수 없습니다. 패턴={}", gpxPattern);
+                log.error("GPX resources not found with pattern: {}", gpxPattern);
                 return;
             }
 
             Resource randomRes = resources[ThreadLocalRandom.current().nextInt(resources.length)];
-            log.info("선택된 GPX 파일: {}", randomRes.getFilename());
+            log.info("Selected GPX file for car {}: {}", carNumber, randomRes.getFilename());
 
+            List<String> gpxFileLines;
             try (var in = randomRes.getInputStream();
                  var br = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
-
-                gpxFile = br.lines()
+                gpxFileLines = br.lines()
                         .filter(line -> line.contains("<trkpt"))
                         .collect(Collectors.toList());
             }
 
-            if (gpxFile.isEmpty()) {
-                log.error("선택된 GPX에서 <trkpt> 라인을 찾지 못했습니다.");
+            if (gpxFileLines.isEmpty()) {
+                log.error("No <trkpt> lines found in the selected GPX file.");
                 return;
             }
 
-            // ★안전화: 포인트가 적어도 동작하도록 윈도우/인덱스 계산
-            int window = Math.min(300, gpxFile.size()); // 최대 300포인트 사용
-            int maxStart = Math.max(0, gpxFile.size() - window);
-            currentIndex = (maxStart == 0) ? 0 : ThreadLocalRandom.current().nextInt(maxStart + 1);
-            endIndex = Math.min(gpxFile.size(), currentIndex + window);
-
-            buffer.clear();
-            startScheduler();
-
-            log.info("스케줄러 시작: points={}, start={}, end={}", gpxFile.size(), currentIndex, endIndex);
+            Runnable simulationTask = createSimulationTask(carNumber, loginId, gpxFileLines);
+            ScheduledFuture<?> future = scheduler.scheduleAtFixedRate(simulationTask, 0, 1, TimeUnit.SECONDS);
+            runningTasks.put(carNumber, future);
 
         } catch (Exception e) {
-            log.error("GPX 파일 로드 중 오류 발생", e);
+            log.error("Error starting GPX simulation for car: " + carNumber, e);
         }
     }
 
-    public void startScheduler() {
-        Runnable task = () -> {
-            try {
-                if (carNumber == null) {
-                    log.error("********* 차량 정보 없음 **********");
-                    return;
-                }
-                if (currentIndex < endIndex) {
-                    Pattern pattern = Pattern.compile("lat=\"(.*?)\"\\s+lon=\"(.*?)\"");
-                    Matcher matcher = pattern.matcher(gpxFile.get(currentIndex));
-                    if (matcher.find()) {
-                        String timestamp = LocalDateTime.now()
-                                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"));
+    public void stopGpxSimulation(String carNumber) {
+        ScheduledFuture<?> future = runningTasks.remove(carNumber);
+        if (future != null) {
+            future.cancel(true);
+            log.info("Stopped GPX simulation for car: {}", carNumber);
+        }
+    }
 
+    private Runnable createSimulationTask(String carNumber, String loginId, List<String> gpxFileLines) {
+        List<GpxLogDto> buffer = new ArrayList<>();
+        int totalPoints = gpxFileLines.size();
+        int window = Math.min(300, totalPoints);
+        int maxStart = Math.max(0, totalPoints - window);
+        final int[] currentIndex = { (maxStart == 0) ? 0 : ThreadLocalRandom.current().nextInt(maxStart + 1) };
+        int endIndex = Math.min(totalPoints, currentIndex[0] + window);
+
+        return () -> {
+            try {
+                if (currentIndex[0] < endIndex) {
+                    Pattern pattern = Pattern.compile("lat=\"(.*?)\"\\s+lon=\"(.*?)\"");
+                    Matcher matcher = pattern.matcher(gpxFileLines.get(currentIndex[0]));
+                    if (matcher.find()) {
+                        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"));
                         String latitude = String.format("%.4f", Double.parseDouble(matcher.group(1)));
                         String longitude = String.format("%.4f", Double.parseDouble(matcher.group(2)));
-
-                        GpxLogDto dto = GpxLogDto.builder()
-                                .timestamp(timestamp)
-                                .latitude(latitude)
-                                .longitude(longitude)
-                                .build();
-
-                        buffer.add(dto);
+                        buffer.add(GpxLogDto.builder().timestamp(timestamp).latitude(latitude).longitude(longitude).build());
                     }
 
-                    if (currentIndex % 60 == 0 && currentIndex != 0) { // 60초마다 전송
-                        sendGpxData();
+                    if (currentIndex[0] > 0 && currentIndex[0] % 60 == 0) {
+                        sendGpxData(carNumber, loginId, new ArrayList<>(buffer));
+                        buffer.clear();
                     }
-
-                    currentIndex++;
+                    currentIndex[0]++;
                 } else {
                     if (!buffer.isEmpty()) {
-                        sendGpxData();
+                        sendGpxData(carNumber, loginId, new ArrayList<>(buffer));
                     }
-                    scheduler.shutdown();
-                    log.info("*********** GPX 파일 전송 완료 ***********");
-
-                    // GPX 전송 완료 후 powerStatus를 OFF로 변경
-                    LogPowerDto logPowerDto = LogPowerDto.builder()
-                        .carNumber(carNumber)
-                        .loginId(loginId)
-                        .powerStatus("OFF")
-                        .build();
-
-                    log.info("emul status off: {}",carNumber);
-
+                    log.info("GPX simulation finished for car: {}", carNumber);
                     carReader.findByCarNumber(carNumber).ifPresent(entity -> {
                         entity.setStatus(CarStatus.IDLE);
                         carRepository.save(entity);
                     });
-                    this.stopScheduler();
+                    stopGpxSimulation(carNumber);
                 }
             } catch (Exception e) {
-                log.error("GPX 재생 중 오류 발생", e);
+                log.error("Error during GPX simulation for car: " + carNumber, e);
+                stopGpxSimulation(carNumber);
             }
         };
-
-        if (scheduler == null || scheduler.isShutdown() || scheduler.isTerminated()) {
-            scheduler = Executors.newSingleThreadScheduledExecutor();
-        }
-        scheduler.scheduleAtFixedRate(task, 0, 1, TimeUnit.SECONDS);
     }
 
-    public void stopScheduler() {
-        if (scheduler != null && !scheduler.isShutdown()) {
-            scheduler.shutdownNow();
-            log.info("GPX 스케줄러가 중단되었습니다.");
-        } else {
-            log.warn("스케줄러가 이미 종료되었거나 시작되지 않았습니다.");
-        }
-    }
+    private void sendGpxData(String carNumber, String loginId, List<GpxLogDto> payload) {
+        if (payload.isEmpty()) return;
 
-    protected void sendGpxData() {
-        // ★추가: 빈 버퍼 가드 (NPE 방지)
-        if (buffer.isEmpty()) return;
-
-        startTime = buffer.get(0).getTimestamp();
-        endTime   = buffer.get(buffer.size() - 1).getTimestamp();
-
-        // 전송할 payload는 복사본 사용(동시성/클리어 전 안전)
-        List<GpxLogDto> payload = new ArrayList<>(buffer);
+        String startTime = payload.get(0).getTimestamp();
+        String endTime = payload.get(payload.size() - 1).getTimestamp();
 
         GpxRequestDto logJson = GpxRequestDto.builder()
                 .carNumber(carNumber)
@@ -204,24 +148,22 @@ public class GpxScheduler {
                 .logList(payload)
                 .build();
 
-        log.info("gpsLog : {}", logJson);
-
+        log.info("Sending GPX log for car {}: {}", carNumber, logJson);
         String collectorUrl = "http://52.78.122.150:8080/api/logs/gps";
-//        String collectorUrl = "http://localhost:8080/api/logs/gps";
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         HttpEntity<GpxRequestDto> request = new HttpEntity<>(logJson, headers);
 
         try {
-            ResponseEntity<String> response = restTemplate.postForEntity(collectorUrl, request, String.class);
-            log.info("Collector 응답 상태: {}", response.getStatusCode());
-            log.info("Collector 응답 바디: {}", response.getBody());
-        } catch (HttpStatusCodeException e) {
-            log.error("Collector 서버 오류: {} - {}", e.getStatusCode(), e.getResponseBodyAsString());
+            restTemplate.postForEntity(collectorUrl, request, String.class);
         } catch (Exception e) {
-            log.error("Collector API 호출 실패", e);
+            log.error("Failed to call collector API for car: " + carNumber, e);
         }
+    }
 
-        buffer.clear();
+    @PreDestroy
+    public void shutdown() {
+        log.info("Shutting down GpxScheduler's executor service.");
+        scheduler.shutdownNow();
     }
 }
