@@ -1,15 +1,20 @@
 package com.example.emulator.application;
 
+import com.example.emulator.application.dto.EndRequestDto;
 import com.example.emulator.application.dto.GpxLogDto;
 import com.example.emulator.application.dto.GpxRequestDto;
+import com.example.emulator.application.dto.StartRequestDto;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.sql.ast.tree.expression.Star;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -30,6 +35,7 @@ import java.util.stream.Collectors;
 @Slf4j
 public class GpxScheduler{
     private final RestTemplate restTemplate; // api 호출을 위함
+    private final String addr = "52.78.122.150"; //"localhost";
 
     private List<String> gpxFile = new ArrayList<>(); // Gpx 파일을 읽어와 저장해두는 리스트
     private List<GpxLogDto> buffer = new ArrayList<>(); // 전송될 GPX 정보들을 저장해두는 리스트
@@ -38,14 +44,25 @@ public class GpxScheduler{
 
     private String carNumber;
     private String loginId;
+
     private String startTime;
     private String endTime;
+
+    private String finalStartTime = null; // 주행기록 찾는 키가 되는 전체 주행 시작 시간
+    private String startLatitude;
+    private String startLongitude;
+
+    private String latitude;
+    private String longitude;
+    private String timestamp;
 
     // 스케줄러 실행 여부 확인
     private ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
     public GpxScheduler(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
+        // Enable PATCH support for RestTemplate
+        this.restTemplate.setRequestFactory(new HttpComponentsClientHttpRequestFactory());
     }
 
     // init method:  랜덤한 GPX 파일 로드 후 메모리(gpxFile)에 로드
@@ -81,6 +98,7 @@ public class GpxScheduler{
 
             // random한 시작 위치 지정
             currentIndex = new Random().nextInt(gpxFile.size() - 300);
+
             // random한 종료 지점 지정 (최소 5분은 주행하도록 보장)
             endIndex = gpxFile.size();
 
@@ -109,11 +127,19 @@ public class GpxScheduler{
 
                     if (matcher.find()) {
                         // Gpx라인을 Dto로 가공하여 리스트에 삽입
-                        String timestamp = LocalDateTime.now()
+                        timestamp = LocalDateTime.now()
                                 .format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"));
 
-                        String latitude = String.format("%.4f", Double.parseDouble(matcher.group(1)));
-                        String longitude = String.format("%.4f", Double.parseDouble(matcher.group(2)));
+                        if (finalStartTime == null) { // 애뮬레이터 시동 ON 시점
+                            finalStartTime = timestamp; // 시작 시간 지정
+                            startLatitude = String.format("%.4f", Double.parseDouble(matcher.group(1)));
+                            startLongitude = String.format("%.4f", Double.parseDouble(matcher.group(2)));
+                            this.startTime = timestamp; // StartRequestDto에 사용할 시작시간 세팅
+                            startDrive();
+                        }
+
+                        latitude = String.format("%.4f", Double.parseDouble(matcher.group(1)));
+                        longitude = String.format("%.4f", Double.parseDouble(matcher.group(2)));
 
                         GpxLogDto dto = GpxLogDto.builder()
                                     .timestamp(timestamp)
@@ -158,6 +184,7 @@ public class GpxScheduler{
             scheduler.shutdownNow();
             // 스케줄러 상태 초기화
             log.info("GPX 스케줄러가 중단되었습니다.");
+            endDrive();
         } else {
             log.warn("스케줄러가 이미 종료되었거나 시작되지 않았습니다.");
         }
@@ -166,8 +193,6 @@ public class GpxScheduler{
     protected void sendGpxData() {
         startTime = buffer.get(0).getTimestamp();
         endTime = buffer.get(buffer.size() - 1).getTimestamp();
-
-
 
         GpxRequestDto logJson = GpxRequestDto.builder()
                 .carNumber(carNumber)
@@ -178,7 +203,7 @@ public class GpxScheduler{
                 .build(); // buffer 내부 로그들 Json화
 
         // 전송할 Collector API 주소
-        String collectorUrl = "http://52.78.122.150:8080/api/logs/gps";
+        String collectorUrl = "http://" + addr + ":8080/api/logs/gps";
 
         // 테스트를 위한 no rabbit mq url
         //String collectorUrl = "http://52.78.122.150:8080/api/logs/gps-direct";
@@ -190,13 +215,78 @@ public class GpxScheduler{
 
         try {
             ResponseEntity<String> response = restTemplate.postForEntity(collectorUrl, request, String.class);
-            log.info("Collector 응답 상태: {}", response.getStatusCode());
-            log.info("Collector 응답 바디: {}", response.getBody());
+            log.info("Stop 응답 상태: {}", response.getStatusCode());
+            log.info("Stop 응답 바디: {}", response.getBody());
         } catch (HttpStatusCodeException e) {
-            log.error("Collector 서버 오류: {} - {}", e.getStatusCode(), e.getResponseBodyAsString());
+            log.error("Stop 서버 오류: {} - {}", e.getStatusCode(), e.getResponseBodyAsString());
         } catch (Exception e) {
-            log.error("Collector API 호출 실패", e);
+            log.error("Stop API 호출 실패", e);
         }
         buffer.clear();
+    }
+
+    private void startDrive() {
+        StartRequestDto requestDto = StartRequestDto.builder()
+                .carNumber(carNumber)
+                .startLatitude(startLatitude)
+                .startLongitude(startLongitude)
+                .startTime(LocalDateTime.parse(startTime))
+                .build();
+
+        String url = "http://" + addr + ":8080/api/drivelogs/start";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        HttpEntity<StartRequestDto> request = new HttpEntity<>(requestDto, headers);
+        try {
+            ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
+            log.info("startDrive 응답 상태: {}", response.getStatusCode());
+            log.info("startDrive 응답 바디: {}", response.getBody());
+        } catch (HttpStatusCodeException e) {
+            log.error("startDrive 서버 오류: {} - {}", e.getStatusCode(), e.getResponseBodyAsString());
+        } catch (Exception e) {
+            log.error("startDrive API 호출 실패", e);
+        }
+    }
+
+    public void endDrive() {
+        // 중도 종료 대비: 버퍼의 마지막 포인트로 종료정보 보정
+        if (endTime == null) {
+            if (!buffer.isEmpty()) {
+                GpxLogDto last = buffer.get(buffer.size() - 1);
+                endTime = last.getTimestamp();
+            } else {
+                // 버퍼가 비어있다면 현재 시각으로 보정
+                endTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"));
+            }
+        }
+        // 시작 시간이 아직 비어있다면 첫 시점으로 보정
+        if (startTime == null && finalStartTime != null) {
+            startTime = finalStartTime;
+        }
+        EndRequestDto requestDto = EndRequestDto.builder()
+                .carNumber(carNumber)
+                .startTime(LocalDateTime.parse(startTime))
+                .endLatitude(latitude)
+                .endLongitude(longitude)
+                .endTime(LocalDateTime.parse(timestamp))
+                .build();
+
+        String url = "http://" + addr + ":8080/api/drivelogs/end";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        HttpEntity<EndRequestDto> request = new HttpEntity<>(requestDto, headers);
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.PATCH, request, String.class);
+            log.info("endDrive 응답 상태: {}", response.getStatusCode());
+            log.info("endDrive 응답 바디: {}", response.getBody());
+        } catch (HttpStatusCodeException e) {
+            log.error("endDrive 서버 오류: {} - {}", e.getStatusCode(), e.getResponseBodyAsString());
+        } catch (Exception e) {
+            log.error("endDrive API 호출 실패", e);
+        }
     }
 }
