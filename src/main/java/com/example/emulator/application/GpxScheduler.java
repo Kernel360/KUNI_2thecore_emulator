@@ -92,15 +92,22 @@ public class GpxScheduler {
     }
 
     private Runnable createSimulationTask(String carNumber, String loginId, List<String> gpxFileLines) {
-        List<GpxLogDto> buffer = new ArrayList<>();
+        final List<GpxLogDto> buffer = new ArrayList<>();
         int totalPoints = gpxFileLines.size();
         int window = Math.min(300, totalPoints);
         int maxStart = Math.max(0, totalPoints - window);
-        final int[] currentIndex = { (maxStart == 0) ? 0 : ThreadLocalRandom.current().nextInt(maxStart + 1) };
-        int endIndex = Math.min(totalPoints, currentIndex[0] + window);
+
+        // 시작 인덱스를 저장해서 경과 시간을 계산하는 데 사용
+        final int startIndex = (maxStart == 0) ? 0 : ThreadLocalRandom.current().nextInt(maxStart + 1);
+        final int[] currentIndex = { startIndex };
+        final int endIndex = Math.min(totalPoints, startIndex + window);
 
         return () -> {
             try {
+                // 매 초마다 현재 진행 시간 로그 출력
+                long elapsedTime = currentIndex[0] - startIndex;
+                log.info("차량: {}, 시뮬레이션 진행 시간: {}초", carNumber, elapsedTime);
+
                 if (currentIndex[0] < endIndex) {
                     Pattern pattern = Pattern.compile("lat=\"(.*?)\"\\s+lon=\"(.*?)\"");
                     Matcher matcher = pattern.matcher(gpxFileLines.get(currentIndex[0]));
@@ -111,7 +118,9 @@ public class GpxScheduler {
                         buffer.add(GpxLogDto.builder().timestamp(timestamp).latitude(latitude).longitude(longitude).build());
                     }
 
-                    if (currentIndex[0] > 0 && currentIndex[0] % 60 == 0) {
+                    // 60초마다 데이터 전송 (시작 후 60초, 120초...)
+                    if (elapsedTime > 0 && elapsedTime % 60 == 0) {
+                        log.info("차량: {}, 60초 경과, 데이터 전송", carNumber);
                         sendGpxData(carNumber, loginId, new ArrayList<>(buffer));
                         buffer.clear();
                     }
