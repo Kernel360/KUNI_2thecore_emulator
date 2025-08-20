@@ -2,8 +2,13 @@ package com.example.emulator.application;
 
 import com.example.emulator.application.dto.GpxLogDto;
 import com.example.emulator.application.dto.GpxRequestDto;
+import com.example.emulator.car.CarReader;
+import com.example.emulator.car.CarStatus;
+import com.example.emulator.car.domain.CarEntity;
 import com.example.emulator.controller.dto.LogPowerDto;
+import com.example.emulator.infrastructure.car.CarRepository;
 import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,13 +42,11 @@ import java.util.stream.Collectors;
 @Setter
 @Getter
 @Slf4j
+@RequiredArgsConstructor
 public class GpxScheduler {
 
     @Autowired
     private RestTemplate restTemplate;
-
-    @Autowired
-    private LogService logService; // LogService 주입
 
     private List<String> gpxFile = new ArrayList<>();
     private List<GpxLogDto> buffer = new ArrayList<>();
@@ -54,6 +57,10 @@ public class GpxScheduler {
     private String loginId;
     private String startTime;
     private String endTime;
+
+    private final CarReader carReader;
+    private final CarRepository carRepository;
+    //    private final EmulatorReader emulatorReader;
 
     private ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
@@ -150,8 +157,14 @@ public class GpxScheduler {
                         .loginId(loginId)
                         .powerStatus("OFF")
                         .build();
-                    logService.changePowerStatus(logPowerDto);
 
+                    log.info("emul status off: {}",carNumber);
+
+                    carReader.findByCarNumber(carNumber).ifPresent(entity -> {
+                        entity.setStatus(CarStatus.IDLE);
+                        carRepository.save(entity);
+                    });
+                    this.stopScheduler();
                 }
             } catch (Exception e) {
                 log.error("GPX 재생 중 오류 발생", e);
