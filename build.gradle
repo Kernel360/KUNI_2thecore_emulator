@@ -37,6 +37,9 @@ dependencies {
     // DotEnv (dev 브랜치 추가된 부분)
     implementation 'io.github.cdimascio:dotenv-java:3.2.0'
 
+    implementation 'org.apache.httpcomponents.client5:httpclient5'
+
+
     // Tests
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
