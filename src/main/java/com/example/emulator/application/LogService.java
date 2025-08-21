@@ -46,12 +46,11 @@ public class LogService {
             log.info("차량 상태 ON: {} ", carNumber);
             carEntity.setStatus(CarStatus.DRIVING);
             carRepository.save(carEntity);
-
-            // 새 스케줄러 생성 및 시작
-            log.info("새로운 스케줄러를 시작합니다: {}", carNumber);
-            GpxScheduler gpxScheduler = new GpxScheduler(restTemplate);
-            schedulers.put(carNumber, gpxScheduler);
-            gpxScheduler.init(carNumber, loginId);
+          
+            // scheduler 시작
+            log.info("emul running");
+            gpxScheduler.startGpxSimulation(carNumber, loginId);
+        }
 
         } else if (powerStatus.equals("OFF")) {
             //status 변경 "대기"
@@ -59,14 +58,7 @@ public class LogService {
             carEntity.setStatus(CarStatus.IDLE);
             carRepository.save(carEntity);
 
-            // 스케줄러 중지
-            if (schedulers.containsKey(carNumber)) {
-                log.info("실행중인 스케줄러를 중지합니다: {}", carNumber);
-                schedulers.get(carNumber).stopScheduler();
-                schedulers.remove(carNumber);
-            } else {
-                log.warn("중지할 스케줄러를 찾을 수 없습니다: {}", carNumber);
-            }
+            gpxScheduler.stopGpxSimulation(carNumber, loginId);
         }
 
         return LogPowerDto.builder()
