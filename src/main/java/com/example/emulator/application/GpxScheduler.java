@@ -234,6 +234,8 @@ public class GpxScheduler {
                 .endTime(LocalDateTime.parse(timestamp))
                 .build();
 
+        startTime = null;
+
         String url = "http://52.78.122.150:8080/api/drivelogs/end";
 
         HttpHeaders headers = new HttpHeaders();
