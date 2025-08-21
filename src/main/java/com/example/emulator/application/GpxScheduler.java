@@ -7,24 +7,37 @@ import com.example.emulator.application.dto.StartRequestDto;
 import com.example.emulator.car.CarReader;
 import com.example.emulator.car.CarStatus;
 import com.example.emulator.infrastructure.car.CarRepository;
+
 import jakarta.annotation.PreDestroy;
 import lombok.RequiredArgsConstructor;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.RestTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.http.*;
 import org.springframework.stereotype.Component;
-import org.springframework.web.client.HttpStatusCodeException;
-import org.springframework.web.client.RestTemplate;
 
+import java.io.File;
+import java.nio.file.Files;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.Map;
 import java.util.concurrent.*;
 import java.util.regex.Matcher;
@@ -150,6 +163,7 @@ public class GpxScheduler {
                     currentIndex[0]++;
                 } else {
                     if (!buffer.isEmpty()) {
+
                         sendGpxData(carNumber, loginId, new ArrayList<>(buffer));
                     }
                     log.info("GPX simulation finished for car: {}", carNumber);
@@ -177,13 +191,15 @@ public class GpxScheduler {
                 .loginId(loginId)
                 .startTime(startTime)
                 .endTime(endTime)
-                .logList(payload)
-                .build();
+                .logList(buffer)
+                .build(); // buffer 내부 로그들 Json화
 
         log.info("Sending GPX log for car {}: {}", carNumber, logJson);
         String collectorUrl = "http://52.78.122.150:8080/api/logs/gps";
+
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
+
         HttpEntity<GpxRequestDto> request = new HttpEntity<>(logJson, headers);
 
         try {
