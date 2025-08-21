@@ -67,6 +67,16 @@ public class GpxScheduler{
                 return;
             }
 
+            // ==================== 테스트용 ====================
+            // daegu-to-gyeongju_POSITION_JUMP_SPIKE.gpx 파일을 명시적으로 로드
+//            var gpxFileResource = getClass().getClassLoader().getResource("gpx/daegu-to-gyeongju_POSITION_JUMP_SPIKE.gpx");
+//            if (gpxFileResource == null) {
+//                log.error("Specified GPX file not found: gpx/daegu-to-gyeongju_POSITION_JUMP_SPIKE.gpx");
+//                return;
+//            }
+//            File randomFile = new File(gpxFileResource.toURI());
+            // ==================== 테스트용 ====================
+
             // 랜덤 파일 선택
             File randomFile = files[new Random().nextInt(files.length)];
             log.info("선택된 GPX 파일: {}", randomFile.getName());
@@ -76,7 +86,20 @@ public class GpxScheduler{
                     .filter(line -> line.trim().startsWith("<trkpt"))
                     .collect(Collectors.toList());
 
+            // ==================== 테스트용 ====================
+            // 1. 프리즈(Freeze) 예외 주입: 20번째 라인부터 100라인 동안 프리즈
+//            gpxFile = com.example.emulator.application.exception.GpxExceptionGenerator.introduceFreeze(gpxFile, 20, 100);
+
+            // 2. 삭제(Deletion) 예외 주입: 20번째 라인부터 100라인 삭제
+//            gpxFile = com.example.emulator.application.exception.GpxExceptionGenerator.introduceDeletion(gpxFile, 20, 100);
+            // ==================== 테스트용 ====================
+
             buffer.clear();
+
+            // ====================테스트용====================
+//            currentIndex = 10; // 1580번째 줄부터 읽도록 설정 (0-indexed: 1579)
+//            endIndex = 600; // 파일 끝까지 읽도록 설정
+            // ====================테스트용====================
 
             // random한 시작 위치 지정
             currentIndex = new Random().nextInt((int)(gpxFile.size() - 300));
@@ -102,6 +125,19 @@ public class GpxScheduler{
                     return;
                 }
                 if (currentIndex < endIndex) {
+//                    String currentLine = gpxFile.get(currentIndex);
+//
+//                    // "DELETION_MARKER"를 만나면 데이터 처리 없이 현재 틱을 건너뛰어 일시정지 효과를 줌
+//                    if ("DELETION_MARKER".equals(currentLine)) {
+//                        log.info("Deletion marker at index {}, pausing for 1 second.", currentIndex);
+//                        currentIndex++;
+//                        return;
+//                    }
+//
+//                    // 위도 경도 추출을 위한 정규표현식
+//                    Pattern pattern = Pattern.compile("lat=\"(.*?)\"\\s+lon=\"(.*?)\"");
+//                    Matcher matcher = pattern.matcher(currentLine);
+
                     // 위도 경도 추출을 위한 정규표현식
                     Pattern pattern = Pattern.compile("lat=\"(.*?)\"\\s+lon=\"(.*?)\"");
                     Matcher matcher = pattern.matcher(gpxFile.get(currentIndex));
@@ -177,6 +213,10 @@ public class GpxScheduler{
                 .build(); // buffer 내부 로그들 Json화
 
         // 전송할 Collector API 주소
+        // ====================테스트용====================
+//        String collectorUrl = "http://localhost:8080/api/logs/gps";
+        // ====================테스트용====================
+
         String collectorUrl = "http://52.78.122.150:8080/api/logs/gps";
 
         // 테스트를 위한 no rabbit mq url
