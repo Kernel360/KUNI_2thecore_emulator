@@ -51,7 +51,7 @@ public class LogService {
             log.info("emul status off: {}",carNumber);
             carEntity.setStatus(CarStatus.IDLE);
             carRepository.save(carEntity);
-            gpxScheduler.stopGpxSimulation(carNumber);
+            gpxScheduler.stopGpxSimulation(carNumber, loginId);
         }
 
         return LogPowerDto.builder()

@@ -1,7 +1,9 @@
 package com.example.emulator.application;
 
+import com.example.emulator.application.dto.EndRequestDto;
 import com.example.emulator.application.dto.GpxLogDto;
 import com.example.emulator.application.dto.GpxRequestDto;
+import com.example.emulator.application.dto.StartRequestDto;
 import com.example.emulator.car.CarReader;
 import com.example.emulator.car.CarStatus;
 import com.example.emulator.infrastructure.car.CarRepository;
@@ -14,7 +16,9 @@ import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
 
 import java.io.BufferedReader;
@@ -45,8 +49,15 @@ public class GpxScheduler {
     @Value("${app.gpx.pattern:classpath*:gpx/*.gpx}")
     private String gpxPattern;
 
+    private List<GpxLogDto> buffer; // Gpx buffer
+
+    String timestamp = null;
+    String latitude = null;
+    String longitude = null;
+    String startTime = null;
+
+
     public void startGpxSimulation(String carNumber, String loginId) {
-        stopGpxSimulation(carNumber);
 
         try {
             log.info("Starting GPX simulation for car: {}", carNumber);
@@ -83,16 +94,24 @@ public class GpxScheduler {
         }
     }
 
-    public void stopGpxSimulation(String carNumber) {
+    public void stopGpxSimulation(String carNumber, String loginId) {
         ScheduledFuture<?> future = runningTasks.remove(carNumber);
         if (future != null) {
             future.cancel(true);
             log.info("Stopped GPX simulation for car: {}", carNumber);
         }
+        // 버퍼에 미전송 데이터 있으면 전송
+        if (buffer != null && !buffer.isEmpty()) {
+            log.info("차량: {}, 종료 시 잔여 데이터 전송", carNumber);
+            sendGpxData(carNumber, loginId, new ArrayList<>(buffer)); // loginId 필요하다면 파라미터 추가
+            buffer.clear();
+        }
+
+        endDrive(carNumber);
     }
 
     private Runnable createSimulationTask(String carNumber, String loginId, List<String> gpxFileLines) {
-        final List<GpxLogDto> buffer = new ArrayList<>();
+        buffer = new ArrayList<>();
         int totalPoints = gpxFileLines.size();
         int window = Math.min(300, totalPoints);
         int maxStart = Math.max(0, totalPoints - window);
@@ -112,10 +131,15 @@ public class GpxScheduler {
                     Pattern pattern = Pattern.compile("lat=\"(.*?)\"\\s+lon=\"(.*?)\"");
                     Matcher matcher = pattern.matcher(gpxFileLines.get(currentIndex[0]));
                     if (matcher.find()) {
-                        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"));
-                        String latitude = String.format("%.4f", Double.parseDouble(matcher.group(1)));
-                        String longitude = String.format("%.4f", Double.parseDouble(matcher.group(2)));
+                        timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss"));
+                        latitude = String.format("%.4f", Double.parseDouble(matcher.group(1)));
+                        longitude = String.format("%.4f", Double.parseDouble(matcher.group(2)));
                         buffer.add(GpxLogDto.builder().timestamp(timestamp).latitude(latitude).longitude(longitude).build());
+
+                        if(startTime == null) {
+                            startTime = timestamp;
+                            startDrive(carNumber, latitude, longitude);
+                        }
                     }
 
                     // 60초마다 데이터 전송 (시작 후 60초, 120초...)
@@ -134,11 +158,11 @@ public class GpxScheduler {
                         entity.setStatus(CarStatus.IDLE);
                         carRepository.save(entity);
                     });
-                    stopGpxSimulation(carNumber);
+                    stopGpxSimulation(carNumber, loginId);
                 }
             } catch (Exception e) {
                 log.error("Error during GPX simulation for car: " + carNumber, e);
-                stopGpxSimulation(carNumber);
+                stopGpxSimulation(carNumber, loginId);
             }
         };
     }
@@ -175,6 +199,60 @@ public class GpxScheduler {
     public void shutdown() {
         log.info("Shutting down GpxScheduler's executor service.");
         scheduler.shutdownNow();
+    }
+
+    private void startDrive(String carNumber, String startLatitude, String startLongitude) {
+        StartRequestDto requestDto = StartRequestDto.builder()
+                .carNumber(carNumber)
+                .startLatitude(startLatitude)
+                .startLongitude(startLongitude)
+                .startTime(LocalDateTime.parse(startTime))
+                .build();
+
+        String url = "http://52.78.122.150:8080/api/drivelogs/start";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        HttpEntity<StartRequestDto> request = new HttpEntity<>(requestDto, headers);
+        log.info("[JWT] request url={}", url);
+        try {
+            ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
+            log.info("startDrive 응답 상태: {}", response.getStatusCode());
+            log.info("startDrive 응답 바디: {}", response.getBody());
+        } catch (HttpStatusCodeException e) {
+            log.error("startDrive 서버 오류: {} - {}", e.getStatusCode(), e.getResponseBodyAsString());
+        } catch (Exception e) {
+            log.error("startDrive API 호출 실패", e);
+        }
+    }
+
+    public void endDrive(String carNumber) {
+        EndRequestDto requestDto = EndRequestDto.builder()
+                .carNumber(carNumber)
+                .startTime(LocalDateTime.parse(startTime))
+                .endLatitude(latitude)
+                .endLongitude(longitude)
+                .endTime(LocalDateTime.parse(timestamp))
+                .build();
+
+        startTime = null;
+
+        String url = "http://52.78.122.150:8080/api/drivelogs/end";
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        HttpEntity<EndRequestDto> request = new HttpEntity<>(requestDto, headers);
+        try {
+            ResponseEntity<String> response = restTemplate.postForEntity(url, request, String.class);
+            log.info("endDrive 응답 상태: {}", response.getStatusCode());
+            log.info("endDrive 응답 바디: {}", response.getBody());
+        } catch (HttpStatusCodeException e) {
+            log.error("endDrive 서버 오류: {} - {}", e.getStatusCode(), e.getResponseBodyAsString());
+        } catch (Exception e) {
+            log.error("endDrive API 호출 실패", e);
+        }
     }
 }
 
