@@ -104,6 +104,12 @@ public class GpxScheduler {
         if (buffer != null && !buffer.isEmpty()) {
             log.info("차량: {}, 종료 시 잔여 데이터 전송", carNumber);
             sendGpxData(carNumber, loginId, new ArrayList<>(buffer)); // loginId 필요하다면 파라미터 추가
+
+            GpxLogDto lastLog = buffer.get(buffer.size() - 1);
+            this.latitude = lastLog.getLatitude();
+            this.longitude = lastLog.getLongitude();
+            this.timestamp = lastLog.getTimestamp();
+
             buffer.clear();
         }
 
