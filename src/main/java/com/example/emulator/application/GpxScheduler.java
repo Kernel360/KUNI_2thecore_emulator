@@ -58,7 +58,6 @@ public class GpxScheduler {
 
 
     public void startGpxSimulation(String carNumber, String loginId) {
-        stopGpxSimulation(carNumber, loginId);
 
         try {
             log.info("Starting GPX simulation for car: {}", carNumber);
