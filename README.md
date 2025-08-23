@@ -20,20 +20,25 @@
 ## 🛠️ 사용 기술
 
 Java 17
+<img src="https://img.shields.io/badge/java-%23ED8B00.svg?style=for-the-badge&logo=openjdk&logoColor=white">
 
 Spring Boot 3.x
+<img src="https://img.shields.io/badge/spring-%236DB33F.svg?style=for-the-badge&logo=spring&logoColor=white">
 
-Gradle
-
-Lombok
+MySQL
+<img src="https://img.shields.io/badge/mysql-4479A1.svg?style=for-the-badge&logo=mysql&logoColor=white">
 
 EC2
+<img src="https://img.shields.io/badge/AWS-%23FF9900.svg?style=for-the-badge&logo=amazon-aws&logoColor=white">
 
 Docker
+<img src="https://img.shields.io/badge/docker-%230db7ed.svg?style=for-the-badge&logo=docker&logoColor=white">
 
 Jenkins
+<img src="https://img.shields.io/badge/jenkins-%232C5263.svg?style=for-the-badge&logo=jenkins&logoColor=white">
 
 Swagger
+<img src="https://img.shields.io/badge/-Swagger-%23Clojure?style=for-the-badge&logo=swagger&logoColor=white">
 
 ## 🚀 실행 방법
 사전 요구사항
@@ -64,7 +69,7 @@ cd emulator
 
 java -jar build/libs/emulator-0.0.1-SNAPSHOT.jar
 
-## 기본 실행 포트: 8081
+기본 실행 포트: 8081
 
 ## ⚙️ 시뮬레이션 상세 로직
 
