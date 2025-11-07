@@ -3,6 +3,7 @@ package com.example.emulator.application;
 import com.example.emulator.application.dto.GpxLogDto;
 import com.example.emulator.application.dto.GpxRequestDto;
 import lombok.Getter;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -18,10 +19,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -29,7 +27,12 @@ import java.util.stream.Collectors;
 @Getter
 @Slf4j
 public class GpxScheduler{
-    private final RestTemplate restTemplate; // api 호출을 위함
+
+    private final RestTemplate restTemplate;// api 호출을 위함
+    private final ScheduledExecutorService scheduler;
+
+    @Setter
+    private ScheduledFuture<?> scheduledTask;
 
     private List<String> gpxFile = new ArrayList<>(); // Gpx 파일을 읽어와 저장해두는 리스트
     private List<GpxLogDto> buffer = new ArrayList<>(); // 전송될 GPX 정보들을 저장해두는 리스트
@@ -42,10 +45,11 @@ public class GpxScheduler{
     private String endTime;
 
     // 스케줄러 실행 여부 확인
-    private ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
+//    private ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
-    public GpxScheduler(RestTemplate restTemplate) {
+    public GpxScheduler(RestTemplate restTemplate, ScheduledExecutorService scheduler) {
         this.restTemplate = restTemplate;
+        this.scheduler = scheduler;
     }
 
     // init method:  랜덤한 GPX 파일 로드 후 메모리(gpxFile)에 로드
@@ -79,11 +83,6 @@ public class GpxScheduler{
 
             buffer.clear();
 
-//            // random한 시작 위치 지정
-//            currentIndex = new Random().nextInt((int)(gpxFile.size() - 300));
-//            // random한 종료 지점 지정 (최소 5분은 주행하도록 보장)
-//            endIndex = new Random().nextInt(currentIndex + 300, gpxFile.size());
-
             currentIndex= ThreadLocalRandom.current().nextInt(gpxFile.size()-300);
             endIndex= gpxFile.size();
 
@@ -103,6 +102,9 @@ public class GpxScheduler{
             try {
                 if (carNumber == null) {
                     log.error("********* 차량 정보 없음 **********");
+                    if(scheduledTask != null){
+                        scheduledTask.cancel(true);
+                    }
                     return;
                 }
                 if (currentIndex < endIndex) {
@@ -138,8 +140,10 @@ public class GpxScheduler{
                     if (!buffer.isEmpty()) {
                         sendGpxData();  // 버퍼에 남은 데이터 전송
                     }
-
-                    scheduler.shutdown(); // 조건 종료 시 스케줄러 중단
+                    if(scheduledTask != null){
+                        scheduledTask.cancel(true);
+                    }
+//                    scheduler.shutdown(); // 조건 종료 시 스케줄러 중단
                     log.info("*********** GPX 파일 전송 완료 ***********");
                 }
             } catch (Exception e) {
@@ -148,22 +152,41 @@ public class GpxScheduler{
         };
 
         // 종료된 경우 스레드 풀 새로 생성
-        if (scheduler == null || scheduler.isShutdown() || scheduler.isTerminated()) {
-            scheduler = Executors.newSingleThreadScheduledExecutor();
-        }
+//        if (scheduler == null || scheduler.isShutdown() || scheduler.isTerminated()) {
+//            scheduler = Executors.newSingleThreadScheduledExecutor();
+//        }
         // 일정 간격으로 GPX 데이터 전송 작업 실행
-        scheduler.scheduleAtFixedRate(task, 0, 1, TimeUnit.SECONDS);
+        this.scheduledTask = scheduler.scheduleAtFixedRate(task, 0, 1, TimeUnit.SECONDS);
     }
 
     // 스케줄러 종료 메서드
     public void stopScheduler() {
-        if (scheduler != null && !scheduler.isShutdown()) {
-            scheduler.shutdownNow();
-            // 스케줄러 상태 초기화
-            log.info("GPX 스케줄러가 중단되었습니다.");
-        } else {
-            log.warn("스케줄러가 이미 종료되었거나 시작되지 않았습니다.");
-        }
+//         if(scheduler == null || scheduler.isShutdown()){
+//            log.info("이미 GPX 스케줄러가 중단되었습니다.");
+//         }
+//
+//         scheduler.shutdown();
+//         log.info("GPX 스케줄러가 중료되었습니다.");
+
+           if(this.scheduledTask != null && !this.scheduledTask.isCancelled()) {
+               this.scheduledTask.cancel(true);
+               log.info("스케줄러 강제 종료");
+           }else{
+               log.info("스케줄러가 이미 종료");
+           }
+
+         try{
+             if(!buffer.isEmpty()){
+                 log.info("버퍼에 있는 잔여 {}개의 데이터를 전송하겠습니다.", buffer.size());
+                 sendGpxData();
+                 log.info("버퍼 데이터 전송 완료");
+             }else{
+                 log.info("버퍼가 이미 비어있습니다.");
+             }
+         }catch (Exception e){
+             log.error("shutdown하는 과정에서 오류가 발생");
+         }
+
     };
 
     protected void sendGpxData() {
@@ -180,11 +203,7 @@ public class GpxScheduler{
                 .logList(buffer)
                 .build(); // buffer 내부 로그들 Json화
 
-        // 전송할 Collector API 주소
-        String collectorUrl = "http://52.78.122.150:8080/api/logs/gps";
-
-        // 테스트를 위한 no rabbit mq url
-        //String collectorUrl = "http://52.78.122.150:8080/api/logs/gps-direct";
+        String collectorUrl = "http://localhost:8080/api/logs/gps";
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
@@ -202,4 +221,5 @@ public class GpxScheduler{
         }
         buffer.clear();
     }
+
 }

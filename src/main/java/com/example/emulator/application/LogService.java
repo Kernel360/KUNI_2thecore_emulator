@@ -1,5 +1,6 @@
 package com.example.emulator.application;
 
+import com.example.emulator.application.dto.DriveLogEventDto;
 import com.example.emulator.car.CarStatus;
 import com.example.emulator.car.domain.CarEntity;
 import com.example.emulator.car.exception.CarErrorCode;
@@ -9,11 +10,15 @@ import com.example.emulator.controller.dto.LogPowerDto;
 import com.example.emulator.infrastructure.car.CarRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
+import java.time.LocalDateTime;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ScheduledExecutorService;
 
 
 @Slf4j
@@ -24,6 +29,14 @@ public class LogService {
     private final CarReader carReader;
     private final CarRepository carRepository;
     private final RestTemplate restTemplate;
+
+    private final RabbitTemplate rabbitTemplate;
+    private static final String DRIVE_LOG_EXCHANGE = "drive.log.exchange";
+
+    @Qualifier("gpxSchedulerPool")
+    private final ScheduledExecutorService gpxSchedulerPool;
+
+
     private final Map<String, GpxScheduler> schedulers = new ConcurrentHashMap<>();
 
     public LogPowerDto changePowerStatus(LogPowerDto logPowerDto) {
@@ -47,9 +60,18 @@ public class LogService {
             carEntity.setStatus(CarStatus.DRIVING);
             carRepository.save(carEntity);
 
+            DriveLogEventDto driveLogOnEvent = DriveLogEventDto.builder()
+                    .eventTime(LocalDateTime.now())
+                    .carNumber(carEntity.getCarNumber())
+                    .status("ON")
+                    .build();
+
+            rabbitTemplate.convertAndSend(DRIVE_LOG_EXCHANGE, "drive.log.ON", driveLogOnEvent);
+
+
             // 새 스케줄러 생성 및 시작
             log.info("새로운 스케줄러를 시작합니다: {}", carNumber);
-            GpxScheduler gpxScheduler = new GpxScheduler(restTemplate);
+            GpxScheduler gpxScheduler = new GpxScheduler(restTemplate, gpxSchedulerPool);
             schedulers.put(carNumber, gpxScheduler);
             gpxScheduler.init(carNumber, loginId);
 
@@ -58,6 +80,14 @@ public class LogService {
             log.info("차량 상태 OFF: {}", carNumber);
             carEntity.setStatus(CarStatus.IDLE);
             carRepository.save(carEntity);
+
+            DriveLogEventDto driveLogOffEvent = DriveLogEventDto.builder()
+                    .eventTime(LocalDateTime.now())
+                    .carNumber(carEntity.getCarNumber())
+                    .status("OFF")
+                    .build();
+
+            rabbitTemplate.convertAndSend(DRIVE_LOG_EXCHANGE, "drive.log.OFF", driveLogOffEvent);
 
             // 스케줄러 중지
             if (schedulers.containsKey(carNumber)) {
