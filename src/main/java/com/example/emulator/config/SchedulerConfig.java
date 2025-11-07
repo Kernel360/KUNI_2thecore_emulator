@@ -11,7 +11,7 @@ public class SchedulerConfig {
 
     @Bean(name = "gpxSchedulerPool")
     public ScheduledExecutorService gpxSchedulerPool(){
-        return Executors.newScheduledThreadPool(10);
+        return Executors.newScheduledThreadPool(50);
     }
 
 }

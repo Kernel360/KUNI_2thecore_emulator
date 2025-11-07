@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.client.RestTemplate;
 
 import java.time.LocalDateTime;
@@ -30,7 +31,9 @@ public class LogService {
     private final CarRepository carRepository;
     private final RestTemplate restTemplate;
 
-    private final RabbitTemplate rabbitTemplate;
+    private final RabbitMqPublisher rabbitMqPublisher;
+    private final updateCarStatusService updateCarStatusService;
+
     private static final String DRIVE_LOG_EXCHANGE = "drive.log.exchange";
 
     @Qualifier("gpxSchedulerPool")
@@ -57,8 +60,11 @@ public class LogService {
 
             //status 변경 "운행"
             log.info("차량 상태 ON: {} ", carNumber);
-            carEntity.setStatus(CarStatus.DRIVING);
-            carRepository.save(carEntity);
+
+            updateCarStatusService.updateCarStatusAsync(carNumber, CarStatus.DRIVING);
+
+            carEntity.setStatus(CarStatus.IDLE);
+
 
             DriveLogEventDto driveLogOnEvent = DriveLogEventDto.builder()
                     .eventTime(LocalDateTime.now())
@@ -66,20 +72,19 @@ public class LogService {
                     .status("ON")
                     .build();
 
-            rabbitTemplate.convertAndSend(DRIVE_LOG_EXCHANGE, "drive.log.ON", driveLogOnEvent);
+
+            rabbitMqPublisher.sendMessage(DRIVE_LOG_EXCHANGE, "drive.log.ON", driveLogOnEvent);
 
 
             // 새 스케줄러 생성 및 시작
             log.info("새로운 스케줄러를 시작합니다: {}", carNumber);
-            GpxScheduler gpxScheduler = new GpxScheduler(restTemplate, gpxSchedulerPool);
+            GpxScheduler gpxScheduler = new GpxScheduler(restTemplate, gpxSchedulerPool, carRepository, updateCarStatusService);
             schedulers.put(carNumber, gpxScheduler);
             gpxScheduler.init(carNumber, loginId);
 
         } else if (powerStatus.equals("OFF")) {
-            //status 변경 "대기"
-            log.info("차량 상태 OFF: {}", carNumber);
-            carEntity.setStatus(CarStatus.IDLE);
-            carRepository.save(carEntity);
+            updateCarStatusService.updateCarStatusAsync(carNumber, CarStatus.IDLE);
+
 
             DriveLogEventDto driveLogOffEvent = DriveLogEventDto.builder()
                     .eventTime(LocalDateTime.now())
@@ -87,16 +92,27 @@ public class LogService {
                     .status("OFF")
                     .build();
 
-            rabbitTemplate.convertAndSend(DRIVE_LOG_EXCHANGE, "drive.log.OFF", driveLogOffEvent);
+            rabbitMqPublisher.sendMessage(DRIVE_LOG_EXCHANGE, "drive.log.OFF", driveLogOffEvent);
 
-            // 스케줄러 중지
-            if (schedulers.containsKey(carNumber)) {
-                log.info("실행중인 스케줄러를 중지합니다: {}", carNumber);
-                schedulers.get(carNumber).stopScheduler();
-                schedulers.remove(carNumber);
-            } else {
+
+            if(schedulers.containsKey(carNumber)){
+                try{
+                    log.info("실행중인 스케줄러를 중지합니다: {}", carNumber);
+                    schedulers.get(carNumber).stopScheduler();
+                }catch (Exception e){
+                    log.error("stopScheduler() 호출 중 예외 발생 (무시하고 제거 진행): {}", e.getMessage(), e);
+                }finally{
+                    log.info("스케줄러를 맵에서 제거합니다: {}", carNumber);
+                    schedulers.remove(carNumber);
+                }
+            }else{
                 log.warn("중지할 스케줄러를 찾을 수 없습니다: {}", carNumber);
             }
+
+            log.info("차량 상태 OFF: {}", carNumber);
+
+
+
         }
 
         return LogPowerDto.builder()
