@@ -11,75 +11,75 @@ pipeline {
   environment {
     IMAGE_NAME  = '2thecore-emulator'
     DOCKER_REPO = 'yeonjin529/2thecore-emulator'
-    DEPLOY_HOST = '15.165.171.174'
-    PEM_PATH    = '/var/lib/jenkins/.ssh/yeojin.pem'
+    DEPLOY_HOST = '3.37.93.107'
     APP_PORT    = '8081'
   }
 
   stages {
-
-    stage('Build & Dockerize') {
+    stage('Build Emulator JAR') {
       steps {
-        withCredentials([
-          usernamePassword(credentialsId: 'docker-hub-token', usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_TOKEN')
-        ]) {
+        sh '''
+          set -e
+          chmod +x ./gradlew
+          ./gradlew --no-daemon clean bootJar -x test
+        '''
+      }
+    }
+
+    stage('Assemble deploy bundle') {
+      steps {
+        withCredentials([file(credentialsId: '2thecore-env', variable: 'PROD_ENV')]) {
           sh '''
-            set -euo pipefail
+            set -e
+            rm -rf deploy
+            mkdir -p deploy/release/emulator
 
-            # Gradle build
-            chmod +x ./gradlew
-            ./gradlew --no-daemon clean bootJar -x test
+            # 빌드 결과물 복사
+            cp build/libs/emulator-0.0.1-SNAPSHOT.jar deploy/release/emulator/app.jar
 
-            # tag: dev-<shortsha>
-            SHORT_SHA="$(git rev-parse --short HEAD)"
-            TAG="dev-${SHORT_SHA}"
-            echo "TAG=${TAG}" > "$WORKSPACE/build_tag.env"
+            # Dockerfile 복사
+            cp Dockerfile deploy/Dockerfile.emulator
 
-            # docker login / build / push
-            echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USER" --password-stdin
+            # Jenkins Credentials -> prod.env 파일로 추가
+            cp $PROD_ENV deploy/release/emulator/prod.env
 
-            docker build -t "${DOCKER_REPO}:${TAG}" -f Dockerfile .
-            docker tag  "${DOCKER_REPO}:${TAG}" "${DOCKER_REPO}:dev-latest"
-
-            docker push "${DOCKER_REPO}:${TAG}"
-            docker push "${DOCKER_REPO}:dev-latest"
+            # tar 압축
+            tar -czf emulator-bundle.tar -C deploy .
+            echo "[OK] emulator-bundle.tar 생성 (app.jar + prod.env 포함)"
           '''
         }
       }
     }
 
-    stage('Deploy to EC2 (single container)') {
+    stage('Deploy to EC2') {
       steps {
-        withCredentials([
-          file(credentialsId: '2thecore-env', variable: 'ENV_FILE'),
-          usernamePassword(credentialsId: 'docker-hub-token', usernameVariable: 'DOCKERHUB_USER', passwordVariable: 'DOCKERHUB_TOKEN')
-        ]) {
+        sshagent(['2thecore-ec2']) {
           sh '''
-            set -euo pipefail
-            source "$WORKSPACE/build_tag.env"
+            set -e
+            # 번들 전송
+            scp -o StrictHostKeyChecking=no emulator-bundle.tar ubuntu@${DEPLOY_HOST}:~
 
-            # prod.env 없는 경우에만 업로드
-            if ssh -o StrictHostKeyChecking=no -i "${PEM_PATH}" "ubuntu@${DEPLOY_HOST}" '[ -f /home/ubuntu/prod.env ]'; then
-              echo "[deploy] using existing /home/ubuntu/prod.env on remote"
-            else
-              echo "[deploy] /home/ubuntu/prod.env not found; uploading..."
-              scp -o StrictHostKeyChecking=no -i "${PEM_PATH}" "$ENV_FILE" "ubuntu@${DEPLOY_HOST}:/home/ubuntu/prod.env"
-            fi
+            # EC2에서 배포 실행
+            ssh -o StrictHostKeyChecking=no ubuntu@${DEPLOY_HOST} bash -lc "
+              set -e
+              rm -rf ~/emulator-deploy && mkdir -p ~/emulator-deploy
+              tar -xzf ~/emulator-bundle.tar -C ~/emulator-deploy
 
-            # 원격 배포
-            ssh -o StrictHostKeyChecking=no -i "${PEM_PATH}" "ubuntu@${DEPLOY_HOST}" "bash -lc '
-              set -euo pipefail
-              echo ${DOCKERHUB_TOKEN} | sudo docker login -u ${DOCKERHUB_USER} --password-stdin
+              cd ~/emulator-deploy
 
-              (sudo docker rm -f ${IMAGE_NAME} || true)
-              sudo docker pull ${DOCKER_REPO}:${TAG}
+              # 기존 컨테이너 제거
+              docker rm -f ${IMAGE_NAME} || true
 
-              sudo docker run -d --name ${IMAGE_NAME} \
-                -p ${APP_PORT}:${APP_PORT} \
-                -v /home/ubuntu/prod.env:/app/prod.env:ro \
-                --restart unless-stopped \
-                ${DOCKER_REPO}:${TAG}
-            '"
+              # 새 이미지 빌드 및 실행 (prod.env 포함됨)
+              docker build -t ${DOCKER_REPO}:dev -f Dockerfile.emulator .
+              docker run -d --name ${IMAGE_NAME} \\
+                -p ${APP_PORT}:${APP_PORT} \\
+                --restart unless-stopped \\
+                ${DOCKER_REPO}:dev
+
+              # tar 삭제
+              rm -f ~/emulator-bundle.tar || true
+            "
           '''
         }
       }
