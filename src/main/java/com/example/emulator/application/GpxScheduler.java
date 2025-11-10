@@ -186,7 +186,7 @@ public class GpxScheduler{
                 .logList(buffer)
                 .build(); // buffer 내부 로그들 Json화
 
-        String collectorUrl = "http://localhost:8080/api/logs/gps";
+        String collectorUrl = "http://43.203.110.104:8080/api/logs/gps";
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
