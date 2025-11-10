@@ -26,7 +26,7 @@ public class AsyncConfig {
     @Bean(name = "dbExecutor")
     public Executor dbExecutor(){
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(50); // DB 작업은 너무 많으면 안 됨
+        executor.setCorePoolSize(50);
         executor.setMaxPoolSize(100);
         executor.setQueueCapacity(200);
         executor.setThreadNamePrefix("DB-Update-");

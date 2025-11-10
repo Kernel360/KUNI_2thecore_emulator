@@ -51,11 +51,6 @@ public class GpxScheduler{
     private String startTime;
     private String endTime;
 
-
-
-    // 스케줄러 실행 여부 확인
-//    private ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
-
     public GpxScheduler(RestTemplate restTemplate, ScheduledExecutorService scheduler, CarRepository carRepository, updateCarStatusService updateCarStatusService) {
         this.restTemplate = restTemplate;
         this.scheduler = scheduler;
@@ -141,7 +136,6 @@ public class GpxScheduler{
                         buffer.add(dto);
                     }
 
-                    // 전송 주기가 되면 데이터 전송 함수 실행 - 60초
                     if (currentIndex % 60 == 0 && currentIndex != 0) {
                         sendGpxData();
                     }
@@ -162,11 +156,6 @@ public class GpxScheduler{
             }
         };
 
-        // 종료된 경우 스레드 풀 새로 생성
-//        if (scheduler == null || scheduler.isShutdown() || scheduler.isTerminated()) {
-//            scheduler = Executors.newSingleThreadScheduledExecutor();
-//        }
-        // 일정 간격으로 GPX 데이터 전송 작업 실행
         this.scheduledTask = scheduler.scheduleAtFixedRate(task, 0, 1, TimeUnit.SECONDS);
     }
 
@@ -180,27 +169,6 @@ public class GpxScheduler{
            }else{
                log.info("스케줄러가 이미 종료");
            }
-
-//         try{
-//             if(!buffer.isEmpty()){
-//                 log.info("버퍼에 있는 잔여 {}개의 데이터를 전송하겠습니다.", buffer.size());
-//
-//                 scheduler.submit(() -> {
-//                     try{
-//                         sendGpxData();
-//                         log.info("버퍼 데이터 전송 완료");
-//                     }
-//                     catch (Exception e){
-//                         log.info("잔여 버퍼 전송중 오류가 발생");
-//                     }
-//                 });
-//
-//             }else{
-//                 log.info("버퍼가 이미 비어있습니다.");
-//             }
-//         }catch (Exception e){
-//             log.error("shutdown하는 과정에서 오류가 발생");
-//         }
 
     }
 

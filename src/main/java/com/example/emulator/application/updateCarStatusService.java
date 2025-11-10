@@ -23,10 +23,9 @@ public class updateCarStatusService {
     @Async("dbExecutor")
     @Transactional
     @Retryable(
-            // 🚨 낙관적 락킹 실패 예외 발생 시 재시도
             value = { OptimisticLockingFailureException.class, ObjectOptimisticLockingFailureException.class },
-            maxAttempts = 5,        // ⬅️ 최대 5번 시도
-            backoff = @Backoff(delay = 100) // ⬅️ 100ms 대기 후 재시도
+            maxAttempts = 5,
+            backoff = @Backoff(delay = 100)
     )
     public void updateCarStatusAsync(String carNumber, CarStatus carStatus){
         try{
@@ -36,8 +35,7 @@ public class updateCarStatusService {
             carRepository.save(car);
             log.info("비동기로 차량 상태 변경 : {} -> {}", carNumber, carStatus);
         }catch(OptimisticLockingFailureException e) {
-            // 🚨 충돌이므로 예외를 다시 던져서 @Retryable이 재시도 로직을 발동시키도록 합니다.
-            log.warn("낙관적 락 충돌 발생 (재시도 진행 중): {}", carNumber);
+            log.warn("락 충돌 발생 재시도: {}", carNumber);
             throw e;
         }
     }

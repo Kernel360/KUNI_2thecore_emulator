@@ -76,7 +76,6 @@ public class LogService {
             rabbitMqPublisher.sendMessage(DRIVE_LOG_EXCHANGE, "drive.log.ON", driveLogOnEvent);
 
 
-            // 새 스케줄러 생성 및 시작
             log.info("새로운 스케줄러를 시작합니다: {}", carNumber);
             GpxScheduler gpxScheduler = new GpxScheduler(restTemplate, gpxSchedulerPool, carRepository, updateCarStatusService);
             schedulers.put(carNumber, gpxScheduler);
