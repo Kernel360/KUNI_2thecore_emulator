@@ -1,6 +1,6 @@
 FROM eclipse-temurin:17-jre
 WORKDIR /app
-q
+
 COPY release/emulator/app.jar app.jar
 
 EXPOSE 8081
